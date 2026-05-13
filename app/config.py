@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "postgresql+asyncpg://user:pass@localhost/pharmago"
+    DATABASE_URL: str = "sqlite+aiosqlite:///./pharmago_demo.db"
     FERNET_KEY: str = ""
     HMAC_SECRET: str = ""
     JWT_SECRET: str = ""
