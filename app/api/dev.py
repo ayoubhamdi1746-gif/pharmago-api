@@ -1,6 +1,6 @@
 import uuid, hashlib, structlog
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +15,7 @@ from app.models.billing import PharmacySubscription, DeliveryCommission, DriverP
 from app.models.user import User
 from app.logging.cfg import new_ref
 from app.config import settings
+from app.limiter import limiter
 
 router = APIRouter()
 logger = structlog.get_logger()
@@ -40,7 +41,8 @@ ROLE_IDENTITY_MAP = {
 
 
 @router.post("/login", response_model=LoginResponse)
-async def dev_login(body: LoginRequest):
+@limiter.limit("5/minute")
+async def dev_login(body: LoginRequest, request: Request):
     role = body.role.upper()
     identity_id = ROLE_IDENTITY_MAP.get(role)
     if not identity_id:
@@ -84,8 +86,9 @@ DEMO_PRESCRIPTIONS = [
 
 
 @router.post("/seed-pharmacist-queue")
+@limiter.limit("5/minute")
 async def dev_seed_pharmacist_queue(
-    db: AsyncSession = Depends(get_db),
+    request: Request, db: AsyncSession = Depends(get_db),
 ):
     if not settings.DEV_MODE:
         raise HTTPException(404, "Not found")
@@ -165,8 +168,9 @@ async def dev_seed_pharmacist_queue(
 
 
 @router.post("/seed-doctor")
+@limiter.limit("5/minute")
 async def dev_seed_doctor(
-    db: AsyncSession = Depends(get_db),
+    request: Request, db: AsyncSession = Depends(get_db),
 ):
     if not settings.DEV_MODE:
         raise HTTPException(404, "Not found")
@@ -209,8 +213,9 @@ async def dev_seed_doctor(
 
 
 @router.post("/seed-driver")
+@limiter.limit("5/minute")
 async def dev_seed_driver(
-    db: AsyncSession = Depends(get_db),
+    request: Request, db: AsyncSession = Depends(get_db),
 ):
     if not settings.DEV_MODE:
         raise HTTPException(404, "Not found")
@@ -258,8 +263,9 @@ async def dev_seed_driver(
 
 
 @router.post("/seed-admin")
+@limiter.limit("5/minute")
 async def dev_seed_admin(
-    db: AsyncSession = Depends(get_db),
+    request: Request, db: AsyncSession = Depends(get_db),
 ):
     if not settings.DEV_MODE:
         raise HTTPException(404, "Not found")
@@ -322,8 +328,9 @@ async def dev_seed_admin(
 
 
 @router.post("/seed-patient")
+@limiter.limit("5/minute")
 async def dev_seed_patient(
-    db: AsyncSession = Depends(get_db),
+    request: Request, db: AsyncSession = Depends(get_db),
 ):
     if not settings.DEV_MODE:
         raise HTTPException(404, "Not found")
@@ -383,8 +390,9 @@ async def dev_seed_patient(
 
 
 @router.post("/seed-users")
+@limiter.limit("5/minute")
 async def dev_seed_users(
-    db: AsyncSession = Depends(get_db),
+    request: Request, db: AsyncSession = Depends(get_db),
 ):
     if not settings.DEV_MODE:
         raise HTTPException(404, "Not found")

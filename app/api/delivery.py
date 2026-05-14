@@ -13,6 +13,7 @@ logger = structlog.get_logger()
 
 
 @router.post("/assign/{prescription_id}", status_code=201)
+@limiter.limit("10/minute")
 async def delivery_assign(
     prescription_id: uuid.UUID, body: DeliveryAssignRequest, request: Request,
     db: AsyncSession = Depends(get_db),

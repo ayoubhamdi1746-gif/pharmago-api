@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db, Role, role_required, UserContext
+from app.limiter import limiter
 from app.schemas.common import APIResponse, SubscriptionCreate, AdminCreateDriverRequest
 from app.models.delivery import VettedDriver, DeliveryTicket
 from app.models.abuse import AbuseFlag
@@ -74,6 +75,7 @@ async def admin_stats(
 
 
 @router.post("/drivers", status_code=201)
+@limiter.limit("10/minute")
 async def admin_create_driver(
     body: AdminCreateDriverRequest, request: Request,
     db: AsyncSession = Depends(get_db),
@@ -112,6 +114,7 @@ async def admin_suspend_driver(
 
 
 @router.post("/subscriptions", status_code=201)
+@limiter.limit("10/minute")
 async def admin_create_subscription(
     body: SubscriptionCreate, request: Request,
     db: AsyncSession = Depends(get_db),
@@ -213,6 +216,7 @@ async def admin_list_payouts(
 
 
 @router.post("/payouts/{payout_id}/mark-paid")
+@limiter.limit("10/minute")
 async def admin_mark_payout_paid(
     payout_id: uuid.UUID, request: Request,
     db: AsyncSession = Depends(get_db),

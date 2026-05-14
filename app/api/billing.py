@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
+from app.limiter import limiter
 from app.schemas.common import APIResponse, BillingSubscribe, RegisterPharmacyRequest
 from app.models.user import User
 from app.models.billing import PharmacySubscription, SubscriptionPlan, PLAN_PRICES, PLAN_LIMITS
@@ -22,6 +23,7 @@ BASE_CALLBACK = "https://api.pharmago.tn"
 
 
 @router.post("/register-pharmacy")
+@limiter.limit("3/minute")
 async def billing_register_pharmacy(
     body: RegisterPharmacyRequest, request: Request,
     db: AsyncSession = Depends(get_db),
@@ -131,6 +133,7 @@ async def billing_register_pharmacy(
 
 
 @router.post("/subscribe")
+@limiter.limit("5/minute")
 async def billing_subscribe(
     body: BillingSubscribe, request: Request,
     db: AsyncSession = Depends(get_db),
@@ -217,6 +220,7 @@ async def billing_subscribe(
 
 
 @router.post("/webhook/konnect")
+@limiter.limit("10/minute")
 async def konnect_webhook(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -263,6 +267,7 @@ async def konnect_webhook(
 
 
 @router.post("/webhook/flouci")
+@limiter.limit("10/minute")
 async def flouci_webhook(
     request: Request,
     db: AsyncSession = Depends(get_db),

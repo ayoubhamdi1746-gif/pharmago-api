@@ -1,5 +1,5 @@
 import structlog
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -39,6 +39,16 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def security_headers_middleware(request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+        return response
+
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     for exc_cls, handler in EXCEPTION_HANDLERS.items():
@@ -54,7 +64,8 @@ def create_app() -> FastAPI:
             return {"status": "error", "db": "disconnected", "detail": str(e)}
 
     @app.post("/seed/demo")
-    async def seed_demo():
+    @limiter.limit("1/minute")
+    async def seed_demo(request: Request):
         from app.database import Base, get_engine, get_session_maker
         async with get_engine().begin() as conn:
             await conn.run_sync(Base.metadata.create_all)

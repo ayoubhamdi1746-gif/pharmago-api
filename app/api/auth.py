@@ -53,7 +53,8 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
 
 
 @router.post("/register-pharmacy")
-async def register_pharmacy(body: RegisterPharmacyRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("3/minute")
+async def register_pharmacy(body: RegisterPharmacyRequest, request: Request, db: AsyncSession = Depends(get_db)):
     try:
         plan_enum = SubscriptionPlan(body.plan.upper())
     except ValueError:

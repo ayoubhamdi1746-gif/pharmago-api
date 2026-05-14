@@ -15,6 +15,7 @@ from app.models.payment import PaymentTransaction
 from app.models.delivery import DeliveryTicket
 from app.services.verification_gate import verify_prescription
 from app.exceptions.handlers import NotFoundException, ForbiddenException
+from app.limiter import limiter
 from app.logging.cfg import new_ref
 
 router = APIRouter()
@@ -115,6 +116,7 @@ async def pharmacist_queue(
 
 
 @router.post("/verify/{prescription_id}")
+@limiter.limit("20/minute")
 async def pharmacist_verify(
     prescription_id: uuid.UUID, body: PharmacistVerifyRequest, request: Request,
     db: AsyncSession = Depends(get_db),
@@ -126,6 +128,7 @@ async def pharmacist_verify(
 
 
 @router.post("/dispense/{prescription_id}")
+@limiter.limit("20/minute")
 async def pharmacist_dispense(
     prescription_id: uuid.UUID, request: Request,
     db: AsyncSession = Depends(get_db),
@@ -179,6 +182,7 @@ async def pharmacist_list_inventory(
 
 
 @router.post("/inventory", status_code=201)
+@limiter.limit("10/minute")
 async def pharmacist_add_medication(
     body: PharmacistAddMedicationRequest, request: Request,
     db: AsyncSession = Depends(get_db),
