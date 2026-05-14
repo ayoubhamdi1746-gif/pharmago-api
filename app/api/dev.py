@@ -18,6 +18,9 @@ from app.models.billing import PharmacySubscription, SubscriptionPlan
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
 
+def _hash(p: str) -> str:
+    return pwd_context.hash(p)
+
 router = APIRouter()
 logger = structlog.get_logger()
 
@@ -456,7 +459,7 @@ async def dev_setup_founders(request: Request, body: SetupFoundersBody = Body(..
             user.role = f["role"]
             user.email = f["email"]
             user.identity_id = identity_id
-            user.hashed_password = pwd_context.hash(f["password"])
+            user.hashed_password = _hash(f["password"])
             user.is_active = True
             results.append({"username": f["username"], "status": "updated"})
         else:
@@ -466,7 +469,7 @@ async def dev_setup_founders(request: Request, body: SetupFoundersBody = Body(..
                 email=f["email"],
                 role=f["role"],
                 identity_id=identity_id,
-                hashed_password=pwd_context.hash(f["password"]),
+                hashed_password=_hash(f["password"]),
                 is_active=True,
             ))
             results.append({"username": f["username"], "status": "created"})
