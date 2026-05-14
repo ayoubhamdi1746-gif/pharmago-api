@@ -2,7 +2,8 @@ import uuid
 import structlog
 from datetime import datetime, timedelta
 import hashlib
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
+import os
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -496,3 +497,70 @@ async def dev_setup_founders(request: Request, body: SetupFoundersBody = Body(..
 @limiter.limit("1/minute")
 async def dev_delete_setup_endpoint(request: Request):
     raise HTTPException(410, "DELETE THIS ENDPOINT AFTER USE")
+
+
+@router.get("/run-founders-setup")
+@limiter.limit("1/minute")
+async def dev_run_founders_setup(
+    request: Request,
+    ayoub_pass: str = Query("youpipo19"),
+    eya_pass: str = Query("israbestie4life"),
+):
+    secret = request.headers.get("X-Setup-Key")
+    if secret != "PHARMAGO_SETUP_2026":
+        raise HTTPException(403, "Forbidden")
+
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        raise HTTPException(500, "DATABASE_URL not set")
+
+    try:
+        import psycopg2
+    except ImportError:
+        raise HTTPException(500, "psycopg2 not installed")
+
+    conn = psycopg2.connect(db_url)
+    conn.autocommit = True
+    cur = conn.cursor()
+
+    results = []
+    founders = [
+        {"username": "ayoub", "email": "ayoubhamdi1746@gmail.com", "password": ayoub_pass, "role": "super_admin"},
+        {"username": "eya",   "email": "eyarzeigui218@gmail.com",   "password": eya_pass,  "role": "super_admin"},
+    ]
+
+    for f in founders:
+        identity_id = hashlib.sha256(f"{f['username']}:{f['email']}".encode()).hexdigest()
+        import bcrypt
+        hashed_pw = bcrypt.hashpw(f["password"].encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
+
+        cur.execute("SELECT id FROM users WHERE username = %s", (f["username"],))
+        row = cur.fetchone()
+
+        if row:
+            cur.execute("""
+                UPDATE users SET role = %s, email = %s, identity_id = %s, hashed_password = %s, is_active = TRUE
+                WHERE username = %s
+            """, (f["role"], f["email"], identity_id, hashed_pw, f["username"]))
+            results.append({"username": f["username"], "status": "updated"})
+        else:
+            cur.execute("""
+                INSERT INTO users (id, username, role, email, identity_id, hashed_password, is_active)
+                VALUES (gen_random_uuid()::text, %s, %s, %s, %s, %s, TRUE)
+            """, (f["username"], f["role"], f["email"], identity_id, hashed_pw))
+            results.append({"username": f["username"], "status": "created"})
+
+    cur.execute("SELECT id FROM users WHERE username = 'admin'")
+    if cur.fetchone():
+        cur.execute("UPDATE users SET is_active = FALSE WHERE username = 'admin'")
+        results.append({"username": "admin", "status": "deactivated"})
+    else:
+        results.append({"username": "admin", "status": "not_found"})
+
+    cur.execute("SELECT id, username, email, role, is_active FROM users WHERE role = 'super_admin'")
+    rows = [{"id": r[0], "username": r[1], "email": r[2], "role": r[3], "is_active": r[4]} for r in cur.fetchall()]
+
+    cur.close()
+    conn.close()
+
+    return APIResponse(status="ok", message="DELETE /dev/run-founders-setup after use", data={"results": results, "super_admins": rows}, ref=new_ref())
