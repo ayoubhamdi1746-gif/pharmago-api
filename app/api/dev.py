@@ -3,7 +3,46 @@ import structlog
 from datetime import datetime, timedelta
 import hashlib
 import os
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
+@router.get("/migrate-users")
+@limiter.limit("1/minute")
+async def dev_migrate_users(request: Request):
+    secret = request.headers.get("X-Setup-Key")
+    if secret != "PHARMAGO_SETUP_2026":
+        raise HTTPException(403, "Forbidden")
+
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        raise HTTPException(500, "DATABASE_URL not set")
+
+    try:
+        import psycopg2
+    except ImportError:
+        raise HTTPException(500, "psycopg2 not installed")
+
+    conn = psycopg2.connect(db_url)
+    conn.autocommit = True
+    cur = conn.cursor()
+
+    migrations = [
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS pharmacy_id VARCHAR(36)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS city VARCHAR(100)",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(255)",
+    ]
+
+    results = []
+    for sql in migrations:
+        try:
+            cur.execute(sql)
+            results.append({"sql": sql[:40], "status": "ok"})
+        except Exception as e:
+            results.append({"sql": sql[:40], "status": "error", "error": str(e)})
+
+    cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'users'")
+    columns = [r[0] for r in cur.fetchall()]
+
+    cur.close()
+    conn.close()
+    return APIResponse(status="ok", message="DELETE /dev/migrate-users after use", data={"migrations": results, "columns": columns}, ref=new_ref())
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
