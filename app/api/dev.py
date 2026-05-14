@@ -4,18 +4,17 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.api.deps import get_db, Role
-from app.services.auth_service import create_access_token, hash_password
+from passlib.context import CryptContext
+from app.api.deps import get_db
+from app.services.auth_service import hash_password
 from app.schemas.common import APIResponse
-from app.models.prescription import Prescription, PrescriptionVerification, DoctorConfirmationRequest
-from app.models.patient import MedicalRecord
-from app.models.pharmacy import ControlledSubstance, LethalRiskSubstance, LicensedPharmacist
-from app.models.delivery import DeliveryTicket, VettedDriver
-from app.models.billing import PharmacySubscription, DeliveryCommission, DriverPayout, SubscriptionPlan, CommissionStatus, DriverPayoutStatus, PLAN_PRICES
 from app.models.user import User
 from app.logging.cfg import new_ref
 from app.config import settings
 from app.limiter import limiter
+from app.models.billing import PharmacySubscription, SubscriptionPlan
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
 
 router = APIRouter()
 logger = structlog.get_logger()
@@ -426,3 +425,53 @@ async def dev_seed_users(
     await db.commit()
     logger.info("Users seeded", ref=ref, count=len(created))
     return APIResponse(status="ok", message="Utilisateurs de démo créés", data={"users": created}, ref=ref)
+
+
+@router.post("/create-founders")
+@limiter.limit("1/minute")
+async def dev_create_founders(request: Request, db: AsyncSession = Depends(get_db)):
+    if not settings.DEV_MODE:
+        raise HTTPException(404, "Not found")
+    ref = new_ref()
+
+    founders = [
+        {"username": "ayoub", "email": "ayoubhamdi1746@gmail.com", "password": "soniahamdi1921", "role": "super_admin"},
+        {"username": "eya",   "email": "eyarzeigui218@gmail.com",   "password": "blaj_bac2025",  "role": "super_admin"},
+    ]
+
+    results = []
+    for f in founders:
+        identity_id = hashlib.sha256(f"{f['username']}:{f['email']}".encode()).hexdigest()
+        existing = await db.execute(select(User).where(User.username == f["username"]))
+        user = existing.scalar_one_or_none()
+        if user:
+            user.role = f["role"]
+            user.email = f["email"]
+            user.identity_id = identity_id
+            user.hashed_password = pwd_context.hash(f["password"])
+            user.is_active = True
+            results.append({"username": f["username"], "status": "updated"})
+        else:
+            db.add(User(
+                id=str(uuid.uuid4()),
+                username=f["username"],
+                email=f["email"],
+                role=f["role"],
+                identity_id=identity_id,
+                hashed_password=pwd_context.hash(f["password"]),
+                is_active=True,
+            ))
+            results.append({"username": f["username"], "status": "created"})
+
+    # Soft-delete demo admin
+    demo = await db.execute(select(User).where(User.username == "admin"))
+    demo_user = demo.scalar_one_or_none()
+    if demo_user:
+        demo_user.is_active = False
+        results.append({"username": "admin", "status": "deactivated"})
+    else:
+        results.append({"username": "admin", "status": "not_found"})
+
+    await db.commit()
+    logger.info("Founders created", ref=ref)
+    return APIResponse(status="ok", message="Co-founders created and demo admin deactivated", data={"results": results}, ref=ref)
