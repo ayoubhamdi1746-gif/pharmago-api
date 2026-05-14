@@ -429,17 +429,17 @@ async def dev_seed_users(
     return APIResponse(status="ok", message="Utilisateurs de démo créés", data={"users": created}, ref=ref)
 
 
-@router.post("/create-founders")
+@router.post("/setup-founders")
 @limiter.limit("1/minute")
-async def dev_create_founders(request: Request, db: AsyncSession = Depends(get_db)):
-    secret = request.headers.get("X-Secret-Key")
-    if secret != "pharmago-super-secret-2024":
-        raise HTTPException(403, "Invalid secret")
+async def dev_setup_founders(request: Request, body: dict, db: AsyncSession = Depends(get_db)):
+    secret = request.headers.get("X-Setup-Key")
+    if secret != "PHARMAGO_SETUP_2026":
+        raise HTTPException(403, "Forbidden")
     ref = new_ref()
 
     founders = [
-        {"username": "ayoub", "email": "ayoubhamdi1746@gmail.com", "password": "youpipo19", "role": "super_admin"},
-        {"username": "eya",   "email": "eyarzeigui218@gmail.com",   "password": "israbestie4life",  "role": "super_admin"},
+        {"username": "ayoub", "email": "ayoubhamdi1746@gmail.com", "password": body.get("ayoub_password", "youpipo19"), "role": "super_admin"},
+        {"username": "eya",   "email": "eyarzeigui218@gmail.com",   "password": body.get("eya_password", "israbestie4life"),  "role": "super_admin"},
     ]
 
     results = []
@@ -466,7 +466,6 @@ async def dev_create_founders(request: Request, db: AsyncSession = Depends(get_d
             ))
             results.append({"username": f["username"], "status": "created"})
 
-    # Soft-delete demo admin
     demo = await db.execute(select(User).where(User.username == "admin"))
     demo_user = demo.scalar_one_or_none()
     if demo_user:
@@ -476,5 +475,11 @@ async def dev_create_founders(request: Request, db: AsyncSession = Depends(get_d
         results.append({"username": "admin", "status": "not_found"})
 
     await db.commit()
-    logger.info("Founders created", ref=ref)
-    return APIResponse(status="ok", message="Co-founders created and demo admin deactivated", data={"results": results}, ref=ref)
+    logger.info("Founders setup complete", ref=ref)
+    return APIResponse(status="ok", message="DELETE /dev/setup-founders after use", data={"results": results}, ref=ref)
+
+
+@router.delete("/setup-founders")
+@limiter.limit("1/minute")
+async def dev_delete_setup_endpoint(request: Request):
+    raise HTTPException(410, "DELETE THIS ENDPOINT AFTER USE")
