@@ -3,7 +3,11 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 from app.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
+
+ADMIN_ROLES = {"admin", "super_admin"}
+ACCESS_TOKEN_EXPIRE_HOURS_ADMIN = 24
+ACCESS_TOKEN_EXPIRE_HOURS_DEFAULT = 8
 
 
 def hash_password(password: str) -> str:
@@ -14,8 +18,14 @@ def verify_password(password: str, hashed: str) -> bool:
     return pwd_context.verify(password, hashed)
 
 
+def _token_expiry(role: str) -> timedelta:
+    if role.lower() in ADMIN_ROLES:
+        return timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS_ADMIN)
+    return timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS_DEFAULT)
+
+
 def create_access_token(subject: str, role: str, identity_id: str) -> str:
-    expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.utcnow() + _token_expiry(role)
     payload = {
         "sub": subject,
         "role": role,

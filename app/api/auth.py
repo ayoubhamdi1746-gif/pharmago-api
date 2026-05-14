@@ -30,7 +30,7 @@ logger = structlog.get_logger()
 
 
 @router.post("/login", response_model=TokenResponse)
-@limiter.limit("10/minute")
+@limiter.limit("5/15minute")
 async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     try:
         result = await db.execute(

@@ -16,6 +16,7 @@ class Role(str, Enum):
     DOCTOR = "doctor"
     DRIVER = "driver"
     ADMIN = "admin"
+    SUPER_ADMIN = "super_admin"
 
 
 @dataclass

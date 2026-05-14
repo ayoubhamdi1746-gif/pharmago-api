@@ -16,6 +16,7 @@ from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.api.billing import router as billing_router
 from app.api.public import router as public_router
+from app.api.super_admin import router as super_admin_router
 from app.exceptions.handlers import EXCEPTION_HANDLERS
 
 logger = structlog.get_logger()
@@ -156,6 +157,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_router, prefix="/admin", tags=["admin"])
     app.include_router(billing_router, prefix="/billing", tags=["billing"])
     app.include_router(public_router, prefix="/public", tags=["public"])
+    app.include_router(super_admin_router, prefix="/admin", tags=["super_admin"])
 
     if settings.DEV_MODE:
         from app.api.dev import router as dev_router
