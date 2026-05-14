@@ -479,9 +479,14 @@ async def dev_setup_founders(request: Request, body: SetupFoundersBody = Body(..
     else:
         results.append({"username": "admin", "status": "not_found"})
 
-    await db.commit()
-    logger.info("Founders setup complete", ref=ref)
-    return APIResponse(status="ok", message="DELETE /dev/setup-founders after use", data={"results": results}, ref=ref)
+    try:
+        await db.commit()
+        logger.info("Founders setup complete", ref=ref)
+        return APIResponse(status="ok", message="DELETE /dev/setup-founders after use", data={"results": results}, ref=ref)
+    except Exception as e:
+        await db.rollback()
+        logger.error("Founders setup failed", ref=ref, error=str(e), error_type=type(e).__name__)
+        raise HTTPException(500, f"Database error: {type(e).__name__}: {e}")
 
 
 @router.delete("/setup-founders")
