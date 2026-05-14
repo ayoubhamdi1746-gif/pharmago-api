@@ -25,6 +25,8 @@ class UserContext:
 
 
 async def get_db() -> AsyncSession:
+    if AsyncSessionLocal is None:
+        raise HTTPException(503, "Database not available")
     async with AsyncSessionLocal() as session:
         yield session
 

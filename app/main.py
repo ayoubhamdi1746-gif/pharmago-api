@@ -1,10 +1,10 @@
+import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from app.limiter import limiter
 from app.config import settings
-from app.database import check_db
 from app.api.prescriptions import router as prescriptions_router
 from app.api.pharmacist import router as pharmacist_router
 from app.api.doctor import router as doctor_router
@@ -17,12 +17,14 @@ from app.api.billing import router as billing_router
 from app.api.public import router as public_router
 from app.exceptions.handlers import EXCEPTION_HANDLERS
 
+logger = structlog.get_logger()
+
 
 def create_app() -> FastAPI:
     try:
         settings.validate_secure()
-    except RuntimeError:
-        pass
+    except RuntimeError as e:
+        logger.warning("startup.validation_warning", error=str(e))
 
     app = FastAPI(title="PharmaGo API")
 
@@ -43,8 +45,12 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     async def health():
-        db_ok = await check_db()
-        return {"status": "ok", "db": "connected" if db_ok else "disconnected"}
+        try:
+            from app.database import check_db
+            db_ok = await check_db()
+            return {"status": "ok", "db": "connected" if db_ok else "disconnected"}
+        except Exception as e:
+            return {"status": "error", "db": "disconnected", "detail": str(e)}
 
     app.include_router(auth_router, prefix="/auth", tags=["auth"])
     app.include_router(prescriptions_router, prefix="/prescriptions", tags=["prescriptions"])
