@@ -430,8 +430,9 @@ async def dev_seed_users(
 @router.post("/create-founders")
 @limiter.limit("1/minute")
 async def dev_create_founders(request: Request, db: AsyncSession = Depends(get_db)):
-    if not settings.DEV_MODE:
-        raise HTTPException(404, "Not found")
+    secret = request.headers.get("X-Secret-Key")
+    if secret != "pharmago-super-secret-2024":
+        raise HTTPException(403, "Invalid secret")
     ref = new_ref()
 
     founders = [
