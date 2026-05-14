@@ -189,8 +189,14 @@ async def pharmacist_add_medication(
     user: UserContext = Depends(role_required(Role.PHARMACIST)),
 ):
     ref = new_ref()
+    pharmacist_user = (await db.execute(
+        select(User).where(User.identity_id == user.id)
+    )).scalar_one_or_none()
+    if not pharmacist_user or not pharmacist_user.pharmacy_id:
+        from app.exceptions.handlers import NotFoundException
+        raise NotFoundException("Pharmacy not found for pharmacist", ref)
     medication = PharmacyMedication(
-        pharmacy_id=uuid.UUID(body.pharmacy_id),
+        pharmacy_id=uuid.UUID(pharmacist_user.pharmacy_id),
         medication_name=body.medication_name,
         dosage=body.dosage,
         stock_quantity=body.stock_quantity,

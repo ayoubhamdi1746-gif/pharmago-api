@@ -88,5 +88,5 @@ async def my_deliveries(
         select(DeliveryTicket).where(DeliveryTicket.prescription_id.in_(presc_ids))
     )).scalars().all()
     return APIResponse(status="ok", message="قائمة توصيلاتك", data={
-        "deliveries": [{"ticket_id": str(t.id), "status": "fulfilled" if t.is_fulfilled else "in_transit"} for t in tickets]
+        "deliveries": [{"ticket_id": str(t.id), "status": "delivered" if t.is_fulfilled else "in_transit"} for t in tickets]
     }, ref=ref)
