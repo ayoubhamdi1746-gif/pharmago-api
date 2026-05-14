@@ -435,8 +435,8 @@ async def dev_create_founders(request: Request, db: AsyncSession = Depends(get_d
     ref = new_ref()
 
     founders = [
-        {"username": "ayoub", "email": "ayoubhamdi1746@gmail.com", "password": "soniahamdi1921", "role": "super_admin"},
-        {"username": "eya",   "email": "eyarzeigui218@gmail.com",   "password": "blaj_bac2025",  "role": "super_admin"},
+        {"username": "ayoub", "email": "ayoubhamdi1746@gmail.com", "password": "youpipo19", "role": "super_admin"},
+        {"username": "eya",   "email": "eyarzeigui218@gmail.com",   "password": "israbestie4life",  "role": "super_admin"},
     ]
 
     results = []
