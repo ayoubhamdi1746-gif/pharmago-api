@@ -24,13 +24,13 @@ FOUNDERS = [
     {
         "username": "ayoub",
         "email": "ayoubhamdi1746@gmail.com",
-        "password": "soniahamdi1921",
+        "password": "youpipo19",
         "role": "super_admin",
     },
     {
         "username": "eya",
         "email": "eyarzeigui218@gmail.com",
-        "password": "blaj_bac2025",
+        "password": "israbestie4life",
         "role": "super_admin",
     },
 ]
