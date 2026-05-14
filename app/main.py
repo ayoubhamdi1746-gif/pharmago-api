@@ -159,8 +159,9 @@ def create_app() -> FastAPI:
     app.include_router(public_router, prefix="/public", tags=["public"])
     app.include_router(super_admin_router, prefix="/admin", tags=["super_admin"])
 
-    from app.api.dev import router as dev_router
-    app.include_router(dev_router, prefix="/dev", tags=["dev"])
+    if settings.DEV_MODE:
+        from app.api.dev import router as dev_router
+        app.include_router(dev_router, prefix="/dev", tags=["dev"])
 
     return app
 
