@@ -46,10 +46,10 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
         return TokenResponse(access_token=access_token, refresh_token=refresh_token)
     except HTTPException:
         raise
-    except Exception:
+    except Exception as e:
         tb = "".join(traceback.format_exc())
-        logger.error("auth.login_error", traceback=tb)
-        raise HTTPException(500, "Internal server error")
+        logger.error("auth.login_error", traceback=tb, error=str(e), error_type=type(e).__name__)
+        raise HTTPException(500, f"Login error: {type(e).__name__}: {e}")
 
 
 @router.post("/register-pharmacy")
