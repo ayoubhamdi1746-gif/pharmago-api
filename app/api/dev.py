@@ -2,7 +2,7 @@ import uuid
 import structlog
 from datetime import datetime, timedelta
 import hashlib
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -429,17 +429,22 @@ async def dev_seed_users(
     return APIResponse(status="ok", message="Utilisateurs de démo créés", data={"users": created}, ref=ref)
 
 
+class SetupFoundersBody(BaseModel):
+    ayoub_password: str = "youpipo19"
+    eya_password: str = "israbestie4life"
+
+
 @router.post("/setup-founders")
 @limiter.limit("1/minute")
-async def dev_setup_founders(request: Request, body: dict, db: AsyncSession = Depends(get_db)):
+async def dev_setup_founders(request: Request, body: SetupFoundersBody = Body(...), db: AsyncSession = Depends(get_db)):
     secret = request.headers.get("X-Setup-Key")
     if secret != "PHARMAGO_SETUP_2026":
         raise HTTPException(403, "Forbidden")
     ref = new_ref()
 
     founders = [
-        {"username": "ayoub", "email": "ayoubhamdi1746@gmail.com", "password": body.get("ayoub_password", "youpipo19"), "role": "super_admin"},
-        {"username": "eya",   "email": "eyarzeigui218@gmail.com",   "password": body.get("eya_password", "israbestie4life"),  "role": "super_admin"},
+        {"username": "ayoub", "email": "ayoubhamdi1746@gmail.com", "password": body.ayoub_password, "role": "super_admin"},
+        {"username": "eya",   "email": "eyarzeigui218@gmail.com",   "password": body.eya_password,  "role": "super_admin"},
     ]
 
     results = []
