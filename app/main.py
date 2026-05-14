@@ -55,10 +55,13 @@ def create_app() -> FastAPI:
 
     @app.post("/seed/demo")
     async def seed_demo():
+        from app.database import Base, get_engine, get_session_maker
+        async with get_engine().begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
         from app.services.auth_service import hash_password
         from app.models.user import User
         from sqlalchemy import select
-        from app.database import get_session_maker
 
         session_maker = get_session_maker()
         async with session_maker() as session:
