@@ -15,12 +15,6 @@ class Settings(BaseSettings):
     MIN_ASSIGN_DELAY_SEC: float = 0.0
     MAX_ASSIGN_DELAY_SEC: float = 480.0
     FULFILL_RATE_LIMIT: str = "5/minute"
-    CORS_ORIGINS: list[str] = [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-    ]
     FRONTEND_URL: str = "http://localhost:3000"
     DEV_MODE: bool = False
     KONNECT_API_KEY: str = ""
