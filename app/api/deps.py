@@ -2,7 +2,7 @@ from enum import Enum
 from dataclasses import dataclass
 from fastapi import Header, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.database import AsyncSessionLocal
+from app.database import get_db as get_async_session
 from app.services.auth_service import decode_token
 
 import structlog
@@ -25,9 +25,7 @@ class UserContext:
 
 
 async def get_db() -> AsyncSession:
-    if AsyncSessionLocal is None:
-        raise HTTPException(503, "Database not available")
-    async with AsyncSessionLocal() as session:
+    async for session in get_async_session():
         yield session
 
 
