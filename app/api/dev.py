@@ -493,6 +493,62 @@ async def dev_setup_founders(request: Request, body: SetupFoundersBody = Body(..
         raise HTTPException(500, f"Database error: {type(e).__name__}: {e}")
 
 
+@router.get("/reset-passwords")
+@limiter.limit("2/minute")
+async def dev_reset_passwords(
+    request: Request,
+    ayoub_pass: str = Query("youpipo19"),
+    eya_pass: str = Query("israbestie4life"),
+):
+    secret = request.headers.get("X-Setup-Key")
+    if secret != "PHARMAGO_SETUP_2026":
+        raise HTTPException(403, "Forbidden")
+
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        raise HTTPException(500, "DATABASE_URL not set")
+
+    import psycopg2
+    import bcrypt
+    conn = psycopg2.connect(db_url)
+    conn.autocommit = True
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT column_name, data_type
+        FROM information_schema.columns
+        WHERE table_name = 'users' AND column_name LIKE '%password%'
+        ORDER BY column_name
+    """)
+    pw_cols = [{"name": r[0], "type": r[1]} for r in cur.fetchall()]
+
+    founders = [
+        {"username": "ayoub", "password": ayoub_pass},
+        {"username": "eya",   "password": eya_pass},
+    ]
+
+    results = []
+    for f in founders:
+        hashed = bcrypt.hashpw(f["password"].encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
+        cur.execute("""
+            UPDATE users SET hashed_password = %s, is_active = TRUE
+            WHERE username = %s
+        """, (hashed, f["username"]))
+        updated = cur.rowcount
+        results.append({"username": f["username"], "updated": updated, "hash_prefix": hashed[:20]})
+        if updated == 0:
+            results[-1]["error"] = "User not found"
+
+    cur.close()
+    conn.close()
+    return APIResponse(
+        status="ok",
+        message="DELETE /dev/reset-passwords after use",
+        data={"password_columns": pw_cols, "results": results},
+        ref=new_ref()
+    )
+
+
 @router.get("/migrate-users")
 @limiter.limit("1/minute")
 async def dev_migrate_users(request: Request):
