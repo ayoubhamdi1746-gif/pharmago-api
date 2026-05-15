@@ -24,6 +24,22 @@ class DemoRequestCreate(BaseModel):
 @limiter.limit("2/minute")
 async def create_demo_request(request: Request, body: DemoRequestCreate, db: AsyncSession = Depends(get_db)):
     ref = new_ref()
+    from app.database import engine
+    from sqlalchemy import text
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS demo_requests (
+                id VARCHAR(36) PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                pharmacy VARCHAR(255) NOT NULL,
+                city VARCHAR(100),
+                phone VARCHAR(50),
+                email VARCHAR(255),
+                message TEXT,
+                is_processed BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
     demo = DemoRequest(
         name=body.name,
         pharmacy=body.pharmacy,
