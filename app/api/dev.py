@@ -493,69 +493,6 @@ async def dev_setup_founders(request: Request, body: SetupFoundersBody = Body(..
         raise HTTPException(500, f"Database error: {type(e).__name__}: {e}")
 
 
-@router.get("/check-user")
-@limiter.limit("3/minute")
-async def dev_check_user(request: Request, username: str = Query(""), secret: str = Header(None)):
-    if secret != "PHARMAGO_SETUP_2026":
-        raise HTTPException(403, "Forbidden")
-
-    db_url = os.environ.get("DATABASE_URL")
-    if not db_url:
-        raise HTTPException(500, "DATABASE_URL not set")
-
-    import psycopg2
-    conn = psycopg2.connect(db_url)
-    conn.autocommit = True
-    cur = conn.cursor()
-
-    cur.execute("SELECT id, username, role, is_active, email, left(hashed_password, 7) FROM users WHERE username = %s", (username,))
-    row = cur.fetchone()
-
-    if not row:
-        cur.close()
-        conn.close()
-        return APIResponse(status="ok", message="User not found", data={"found": False}, ref=new_ref())
-
-    data = {
-        "found": True,
-        "id": row[0],
-        "username": row[1],
-        "role": row[2],
-        "is_active": row[3],
-        "email": row[4],
-        "hash_prefix": row[5],
-    }
-
-    cur.close()
-    conn.close()
-    return APIResponse(status="ok", message="", data=data, ref=new_ref())
-
-
-@router.post("/reset-password")
-@limiter.limit("1/minute")
-async def dev_reset_password(request: Request, username: str = Query(""), password: str = Query(""), secret: str = Header(None)):
-    if secret != "PHARMAGO_SETUP_2026":
-        raise HTTPException(403, "Forbidden")
-
-    db_url = os.environ.get("DATABASE_URL")
-    if not db_url:
-        raise HTTPException(500, "DATABASE_URL not set")
-
-    import psycopg2
-    import bcrypt
-    conn = psycopg2.connect(db_url)
-    conn.autocommit = True
-    cur = conn.cursor()
-
-    hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
-    cur.execute("UPDATE users SET hashed_password = %s, is_active = TRUE WHERE username = %s", (hashed, username))
-    updated = cur.rowcount
-
-    cur.close()
-    conn.close()
-    return APIResponse(status="ok", message=f"Password reset for {username}", data={"updated": updated}, ref=new_ref())
-
-
 @router.get("/migrate-users")
 @limiter.limit("1/minute")
 async def dev_migrate_users(request: Request):
