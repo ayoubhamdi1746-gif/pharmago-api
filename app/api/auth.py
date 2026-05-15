@@ -41,8 +41,8 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
             logger.warning("auth.login_failed", account_exists=user is not None)
             raise HTTPException(401, "Invalid username or password")
 
-        access_token = create_access_token(user.id, user.role, user.identity_id)
-        refresh_token = create_refresh_token(user.id, user.role, user.identity_id)
+        access_token = create_access_token(str(user.id), user.role, user.identity_id)
+        refresh_token = create_refresh_token(str(user.id), user.role, user.identity_id)
         return TokenResponse(access_token=access_token, refresh_token=refresh_token)
     except HTTPException:
         raise
@@ -120,6 +120,6 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     if not user:
         raise HTTPException(401, "User not found or inactive")
 
-    access_token = create_access_token(user.id, user.role, user.identity_id)
-    refresh_token = create_refresh_token(user.id, user.role, user.identity_id)
+    access_token = create_access_token(str(user.id), user.role, user.identity_id)
+    refresh_token = create_refresh_token(str(user.id), user.role, user.identity_id)
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
