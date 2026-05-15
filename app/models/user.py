@@ -1,5 +1,6 @@
 import uuid
-from sqlalchemy import Column, String, Boolean
+from datetime import datetime
+from sqlalchemy import Column, String, Boolean, DateTime
 from app.database import Base
 
 
@@ -15,3 +16,4 @@ class User(Base):
     pharmacy_id = Column(String(36), nullable=True)
     city = Column(String(100), nullable=True)
     email = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

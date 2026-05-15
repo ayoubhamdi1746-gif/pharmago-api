@@ -22,31 +22,44 @@ async def super_stats(
 ):
     ref = new_ref()
 
-    total_pharmacies = await db.execute(
-        select(func.count(PharmacySubscription.id))
-    )
-    total_pharmacies = total_pharmacies.scalar()
+    try:
+        total_pharmacies = await db.execute(select(func.count(PharmacySubscription.id)))
+        total_pharmacies = total_pharmacies.scalar() or 0
+    except Exception:
+        total_pharmacies = 0
 
-    total_patients = await db.execute(
-        select(func.count(User.id)).where(User.role == "patient")
-    )
-    total_patients = total_patients.scalar()
+    try:
+        total_patients = await db.execute(
+            select(func.count(User.id)).where(User.role == "patient")
+        )
+        total_patients = total_patients.scalar() or 0
+    except Exception:
+        total_patients = 0
 
-    total_deliveries = await db.execute(
-        select(func.count(DeliveryTicket.id)).where(DeliveryTicket.is_fulfilled == True)
-    )
-    total_deliveries = total_deliveries.scalar()
+    try:
+        total_deliveries = await db.execute(
+            select(func.count(DeliveryTicket.id)).where(DeliveryTicket.is_fulfilled == True)
+        )
+        total_deliveries = total_deliveries.scalar() or 0
+    except Exception:
+        total_deliveries = 0
 
-    total_revenue = await db.execute(
-        select(func.coalesce(func.sum(DeliveryCommission.commission_amount_tnd), 0))
-    )
-    total_revenue = float(total_revenue.scalar())
+    try:
+        total_revenue = await db.execute(
+            select(func.coalesce(func.sum(DeliveryCommission.commission_amount_tnd), 0))
+        )
+        total_revenue = float(total_revenue.scalar() or 0)
+    except Exception:
+        total_revenue = 0.0
 
-    seven_days_ago = datetime.utcnow() - timedelta(days=7)
-    new_users = await db.execute(
-        select(func.count(User.id)).where(User.created_at >= seven_days_ago)
-    )
-    new_users = new_users.scalar()
+    try:
+        seven_days_ago = datetime.utcnow() - timedelta(days=7)
+        new_users = await db.execute(
+            select(func.count(User.id)).where(User.created_at >= seven_days_ago)
+        )
+        new_users = new_users.scalar() or 0
+    except Exception:
+        new_users = 0
 
     return APIResponse(status="ok", message="Super admin stats", data={
         "total_pharmacies": total_pharmacies,
