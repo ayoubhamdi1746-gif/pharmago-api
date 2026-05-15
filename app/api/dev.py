@@ -3,7 +3,7 @@ import structlog
 from datetime import datetime, timedelta
 import hashlib
 import os
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,11 +16,6 @@ from app.logging.cfg import new_ref
 from app.config import settings
 from app.limiter import limiter
 from app.models.billing import PharmacySubscription, SubscriptionPlan
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
-
-def _hash(p: str) -> str:
-    return pwd_context.hash(p)
 
 router = APIRouter()
 logger = structlog.get_logger()
