@@ -493,55 +493,6 @@ async def dev_setup_founders(request: Request, body: SetupFoundersBody = Body(..
         raise HTTPException(500, f"Database error: {type(e).__name__}: {e}")
 
 
-@router.get("/debug-login")
-@limiter.limit("5/minute")
-async def dev_debug_login(request: Request, username: str = Query(""), secret: str = Header(None)):
-    if secret != "PHARMAGO_SETUP_2026":
-        raise HTTPException(403, "Forbidden")
-
-    db_url = os.environ.get("DATABASE_URL")
-    if not db_url:
-        raise HTTPException(500, "DATABASE_URL not set")
-
-    import psycopg2
-    import bcrypt
-    conn = psycopg2.connect(db_url)
-    conn.autocommit = True
-    cur = conn.cursor()
-
-    cur.execute("SELECT id, username, role, is_active, email, hashed_password FROM users WHERE username = %s", (username,))
-    row = cur.fetchone()
-
-    if not row:
-        cur.close()
-        conn.close()
-        return APIResponse(status="ok", data={"found": False, "username": username}, ref=new_ref())
-
-    user_id, db_username, role, is_active, email, hashed_pw = row
-
-    test_results = {}
-    test_passwords = ["demo", "youpipo19", "israbestie4life", "soniahamdi1921", "blaj_bac2025"]
-    for pw in test_passwords:
-        try:
-            test_results[pw] = bcrypt.checkpw(pw.encode("utf-8"), hashed_pw.encode("utf-8"))
-        except Exception as e:
-            test_results[pw] = f"error: {e}"
-
-    cur.close()
-    conn.close()
-
-    return APIResponse(status="ok", data={
-        "found": True,
-        "username": db_username,
-        "role": role,
-        "is_active": is_active,
-        "email": email,
-        "hash_prefix": hashed_pw[:20],
-        "bcrypt_cost": hashed_pw.split("$")[2] if len(hashed_pw.split("$")) > 2 else "unknown",
-        "password_tests": test_results,
-    }, ref=new_ref())
-
-
 @router.get("/migrate-users")
 @limiter.limit("1/minute")
 async def dev_migrate_users(request: Request):
