@@ -493,6 +493,49 @@ async def dev_setup_founders(request: Request, body: SetupFoundersBody = Body(..
         raise HTTPException(500, f"Database error: {type(e).__name__}: {e}")
 
 
+@router.get("/check-hash")
+@limiter.limit("3/minute")
+async def dev_check_hash(request: Request, username: str = Query(""), secret: str = Header(None)):
+    if secret != "PHARMAGO_SETUP_2026":
+        raise HTTPException(403, "Forbidden")
+
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        raise HTTPException(500, "DATABASE_URL not set")
+
+    import psycopg2
+    conn = psycopg2.connect(db_url)
+    conn.autocommit = True
+    cur = conn.cursor()
+
+    cur.execute("SELECT username, role, is_active, hashed_password FROM users WHERE username = %s", (username,))
+    row = cur.fetchone()
+
+    if not row:
+        cur.close()
+        conn.close()
+        return APIResponse(status="ok", data={"found": False, "username": username}, ref=new_ref())
+
+    db_username, role, is_active, hashed_pw = row
+    parts = hashed_pw.split("$") if hashed_pw else []
+
+    data = {
+        "found": True,
+        "username": db_username,
+        "role": role,
+        "is_active": is_active,
+        "hash_prefix": hashed_pw[:20] if hashed_pw else "null",
+        "hash_prefix_safe": (hashed_pw[:20] + "...") if hashed_pw and len(hashed_pw) > 20 else hashed_pw,
+        "algorithm": parts[1] if len(parts) > 1 else "unknown",
+        "rounds": parts[2] if len(parts) > 2 else "unknown",
+        "hash_length": len(hashed_pw) if hashed_pw else 0,
+    }
+
+    cur.close()
+    conn.close()
+    return APIResponse(status="ok", data=data, ref=new_ref())
+
+
 @router.get("/reset-passwords")
 @limiter.limit("2/minute")
 async def dev_reset_passwords(
