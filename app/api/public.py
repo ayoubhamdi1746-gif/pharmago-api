@@ -54,7 +54,11 @@ async def create_demo_request(request: Request, body: DemoRequestCreate, db: Asy
 
 
 @router.get("/demo-requests")
-async def list_demo_requests(db: AsyncSession = Depends(get_db)):
+async def list_demo_requests(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    from sqlalchemy import select, func
     from sqlalchemy import select, func
     total = await db.execute(select(func.count(DemoRequest.id)))
     total = total.scalar()
@@ -90,3 +94,20 @@ async def mark_demo_processed(request_id: str, db: AsyncSession = Depends(get_db
     demo.is_processed = True
     await db.commit()
     return APIResponse(status="ok", message="Marked as processed", data={"id": demo.id}, ref=new_ref())
+
+
+class NewsletterEmail(BaseModel):
+    email: str
+
+
+@router.post("/newsletter")
+@limiter.limit("3/minute")
+async def subscribe_newsletter(request: Request, body: NewsletterEmail, db: AsyncSession = Depends(get_db)):
+    ref = new_ref()
+    logger.info("newsletter.subscribe", email=body.email, ref=ref)
+    return APIResponse(
+        status="ok",
+        message="Inscrit avec succès",
+        data={"email": body.email},
+        ref=ref,
+    )

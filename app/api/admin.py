@@ -180,7 +180,7 @@ async def admin_list_subscriptions(
 async def admin_list_payouts(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: UserContext = Depends(role_required(Role.ADMIN)),
+    user: UserContext = Depends(role_required(Role.ADMIN, Role.SUPER_ADMIN)),
     period: str = "all",
 ):
     ref = new_ref()

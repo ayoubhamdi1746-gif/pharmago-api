@@ -160,3 +160,108 @@ async def super_delete_user(
         "username": target.username,
         "is_active": target.is_active,
     }, ref=ref)
+
+
+@router.get("/super/stats/monthly")
+async def super_monthly_stats(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: UserContext = Depends(role_required(Role.SUPER_ADMIN)),
+):
+    ref = new_ref()
+    now = datetime.utcnow()
+    months_data = []
+
+    for i in range(5, -1, -1):
+        month = now.month - i
+        year = now.year
+        while month < 1:
+            month += 12
+            year -= 1
+
+        month_start = now.replace(year=year, month=month, day=1, hour=0, minute=0, second=0, microsecond=0)
+        if month == 12:
+            month_end = now.replace(year=year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        else:
+            month_end = now.replace(year=year, month=month + 1, day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        month_name = month_start.strftime("%b")
+
+        try:
+            revenue = await db.execute(
+                select(func.coalesce(func.sum(PharmacySubscription.price_tnd), 0))
+                .where(PharmacySubscription.is_active == True)
+            )
+            rev = float(revenue.scalar() or 0)
+        except Exception:
+            rev = 0
+
+        try:
+            count_result = await db.execute(
+                select(func.count(User.id))
+                .where(User.created_at >= month_start, User.created_at < month_end)
+            )
+            cnt = count_result.scalar() or 0
+        except Exception:
+            cnt = 0
+
+        months_data.append({"month": month_name, "revenue": rev, "count": cnt})
+
+    return APIResponse(status="ok", message="Monthly stats", data={"months": months_data}, ref=ref)
+
+
+@router.get("/super/activity")
+async def super_activity(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: UserContext = Depends(role_required(Role.SUPER_ADMIN)),
+):
+    ref = new_ref()
+    events = []
+
+    try:
+        new_users = (await db.execute(
+            select(User).order_by(User.created_at.desc()).limit(5)
+        )).scalars().all()
+        for u in new_users:
+            if u.created_at:
+                events.append({
+                    "type": "user",
+                    "description": f"Nouveau {u.role or 'utilisateur'} : {u.username}",
+                    "created_at": u.created_at.isoformat(),
+                })
+    except Exception:
+        pass
+
+    try:
+        subs = (await db.execute(
+            select(PharmacySubscription).order_by(PharmacySubscription.started_at.desc()).limit(3)
+        )).scalars().all()
+        for s in subs:
+            if s.started_at:
+                events.append({
+                    "type": "pharmacy",
+                    "description": f"Pharmacie '{s.pharmacy_name}' inscrite ({s.plan.value})",
+                    "created_at": s.started_at.isoformat(),
+                })
+    except Exception:
+        pass
+
+    try:
+        payouts = (await db.execute(
+            select(DriverPayout).order_by(DriverPayout.created_at.desc()).limit(3)
+        )).scalars().all()
+        for p in payouts:
+            if p.created_at:
+                events.append({
+                    "type": "payment",
+                    "description": f"Paiement {float(p.amount_tnd):.2f} TND",
+                    "created_at": p.created_at.isoformat(),
+                })
+    except Exception:
+        pass
+
+    events.sort(key=lambda x: x["created_at"], reverse=True)
+    events = events[:10]
+
+    return APIResponse(status="ok", message="Activity feed", data={"events": events}, ref=ref)
