@@ -345,30 +345,40 @@ async def admin_list_pharmacies(
     request: Request,
     db: AsyncSession = Depends(get_db),
     user: UserContext = Depends(role_required(Role.ADMIN, Role.SUPER_ADMIN)),
+    page: int = 1,
+    limit: int = 100,
+    city: str = "",
+    plan: str = "",
 ):
     ref = new_ref()
-    subs = (await db.execute(
-        select(PharmacySubscription).order_by(PharmacySubscription.started_at.desc())
-    )).scalars().all()
-    return APIResponse(status="ok", message="قائمة الصيدليات", data={
-        "pharmacies": [
-            {
-                "id": str(s.id),
-                "pharmacy_id": str(s.pharmacy_id),
-                "pharmacy_name": s.pharmacy_name,
-                "city": s.city,
-                "plan": s.plan.value,
-                "price_tnd": float(s.price_tnd),
-                "is_active": s.is_active,
-                "delivery_count_this_month": s.delivery_count_this_month,
-                "delivery_limit": s.delivery_limit,
-                "total_delivery_earnings": float(s.total_delivery_earnings),
-                "started_at": s.started_at.isoformat(),
-                "expires_at": s.expires_at.isoformat(),
-            }
-            for s in subs
-        ],
-    }, ref=ref)
+    try:
+        subs = (await db.execute(
+            select(PharmacySubscription).order_by(PharmacySubscription.started_at.desc())
+        )).scalars().all()
+        return APIResponse(status="ok", message="قائمة الصيدليات", data={
+            "pharmacies": [
+                {
+                    "id": str(s.id),
+                    "pharmacy_id": str(s.pharmacy_id),
+                    "pharmacy_name": s.pharmacy_name,
+                    "city": s.city,
+                    "plan": s.plan.value,
+                    "price_tnd": float(s.price_tnd),
+                    "is_active": s.is_active,
+                    "delivery_count_this_month": s.delivery_count_this_month,
+                    "delivery_limit": s.delivery_limit,
+                    "total_delivery_earnings": float(s.total_delivery_earnings),
+                    "started_at": s.started_at.isoformat(),
+                    "expires_at": s.expires_at.isoformat(),
+                }
+                for s in subs
+            ],
+        }, ref=ref)
+    except Exception as e:
+        import traceback
+        tb = "".join(traceback.format_exc())
+        logger.error("admin.pharmacies_error", traceback=tb, error=str(e), ref=ref)
+        raise HTTPException(500, "Erreur interne")
 
 
 @router.patch("/pharmacies/{pharmacy_id}")

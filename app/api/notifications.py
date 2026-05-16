@@ -136,15 +136,18 @@ async def get_unread_count(
     db: AsyncSession = Depends(get_db),
     user: UserContext = Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(func.count(Notification.id)).where(
-            and_(
-                Notification.user_id == user.id,
-                Notification.is_read == False
+    try:
+        result = await db.execute(
+            select(func.count(Notification.id)).where(
+                and_(
+                    Notification.user_id == user.id,
+                    Notification.is_read == False
+                )
             )
         )
-    )
-    count = result.scalar()
+        count = result.scalar() or 0
+    except Exception:
+        count = 0
     return {"status": "ok", "data": {"unread": count}}
 
 
