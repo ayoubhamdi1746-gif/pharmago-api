@@ -61,11 +61,14 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
             logger.warning("auth.login_failed", reason="bad_password", username=body.username, ref=ref)
             raise HTTPException(401, "Nom d'utilisateur ou mot de passe incorrect")
 
-        user_id = str(getattr(user, 'id', '') or '')
+user_id = str(getattr(user, 'id', '') or '')
         role_val = getattr(user, 'role', 'unknown') or 'unknown'
         identity_val = getattr(user, 'identity_id', '') or ''
 
+        logger.info("auth.login_steps", username=body.username, ref=ref, step="before_access_token")
+
         access_token, access_jti = create_access_token(user_id, role_val, identity_val)
+        logger.info("auth.login_steps", username=body.username, ref=ref, step="before_refresh_token")
         refresh_token, refresh_jti = create_refresh_token(user_id, role_val, identity_val)
 
         logger.info("auth.login_success", username=body.username, role=role_val, ref=ref)
@@ -78,7 +81,7 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
         logger.error("auth.login_crash", traceback=tb, error=str(e), error_type=type(e).__name__, username=body.username, ref=ref)
         return JSONResponse(
             status_code=500,
-            content={"status": "error", "message": "Erreur interne", "data": None, "ref": ref},
+            content={"status": "error", "message": "Erreur interne", "data": {"type": type(e).__name__, "detail": str(e)}, "ref": ref},
         )
 
 
