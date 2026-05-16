@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
-from app.schemas.common import LoginRequest, TokenResponse, RefreshRequest
+from app.schemas.common import LoginRequest, TokenResponse, RefreshRequest, PharmacyRegisterRequest, PatientRegisterRequest, DriverRegisterRequest
 from app.models.user import User
 from app.models.billing import PharmacySubscription, SubscriptionPlan, PLAN_PRICES, PLAN_LIMITS
 from app.services.auth_service import (

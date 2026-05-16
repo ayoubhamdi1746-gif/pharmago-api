@@ -7,8 +7,8 @@ from app.api.deps import get_db, get_current_user, Role, role_required, UserCont
 from app.schemas.common import APIResponse
 from app.models.prescription import Prescription, PrescriptionVerification, PrescriptionEvent
 from app.models.user import User
-from app.models.pharmacy import PharmacyProfile
-from app.models.doctor import LicensedPharmacist
+from app.models.pharmacy_profile import PharmacyProfile
+from app.models.pharmacy import LicensedPharmacist
 from app.models.delivery import VettedDriver
 from app.logging.cfg import new_ref
 import json
