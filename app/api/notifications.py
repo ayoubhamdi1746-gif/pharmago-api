@@ -1,4 +1,4 @@
-import uuid, structlog
+import uuid, structlog, traceback
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from sqlalchemy import select, func, and_, or_, desc
