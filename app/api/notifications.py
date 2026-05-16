@@ -130,6 +130,24 @@ async def mark_notification_as_read(
         raise HTTPException(500, "Internal server error")
 
 
+@router.get("/unread")
+async def get_unread_count(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: UserContext = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(func.count(Notification.id)).where(
+            and_(
+                Notification.user_id == user.id,
+                Notification.is_read == False
+            )
+        )
+    )
+    count = result.scalar()
+    return {"status": "ok", "data": {"unread": count}}
+
+
 @router.get("/count/unread")
 async def get_unread_notification_count(
     request: Request,
