@@ -32,34 +32,37 @@ logger = structlog.get_logger()
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("5/15minute")
 async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    ref = new_ref()
     try:
         result = await db.execute(
-            select(User).where(User.username == body.username, User.is_active == True)
+            select(User).where(User.username == body.username)
         )
         user = result.scalar_one_or_none()
         if not user:
-            logger.warning("auth.login_failed", reason="user_not_found", username=body.username)
+            logger.warning("auth.login_failed", reason="user_not_found", username=body.username, ref=ref)
             raise HTTPException(401, "Nom d'utilisateur ou mot de passe incorrect")
 
-        try:
-            password_ok = verify_password(body.password, user.hashed_password)
-        except Exception as pw_err:
-            logger.error("auth.verify_password_error", error=str(pw_err), username=body.username, hash_prefix=str(user.hashed_password[:20]) if user.hashed_password else "NULL")
-            raise HTTPException(500, "Erreur interne de vérification")
+        if not user.hashed_password:
+            logger.error("auth.login_no_hash", username=body.username, ref=ref)
+            raise HTTPException(500, "Compte mal configuré, contactez l'administrateur")
 
+        password_ok = verify_password(body.password, user.hashed_password)
         if not password_ok:
-            logger.warning("auth.login_failed", reason="bad_password", username=body.username)
+            logger.warning("auth.login_failed", reason="bad_password", username=body.username, ref=ref)
             raise HTTPException(401, "Nom d'utilisateur ou mot de passe incorrect")
 
-        access_token = create_access_token(str(user.id), user.role or "unknown", user.identity_id or "")
-        refresh_token = create_refresh_token(str(user.id), user.role or "unknown", user.identity_id or "")
+        role_val = str(user.role) if user.role else "unknown"
+        identity_val = str(user.identity_id) if user.identity_id else ""
+        access_token = create_access_token(str(user.id), role_val, identity_val)
+        refresh_token = create_refresh_token(str(user.id), role_val, identity_val)
+        logger.info("auth.login_success", username=body.username, role=role_val, ref=ref)
         return TokenResponse(access_token=access_token, refresh_token=refresh_token)
     except HTTPException:
         raise
     except Exception as e:
         tb = "".join(traceback.format_exc())
-        logger.error("auth.login_error", traceback=tb, error=str(e), error_type=type(e).__name__)
-        raise HTTPException(500, f"Login error: {type(e).__name__}: {e}")
+        logger.error("auth.login_error", traceback=tb, error=str(e), error_type=type(e).__name__, username=body.username, ref=ref)
+        raise HTTPException(500, "Erreur interne")
 
 
 @router.post("/register-pharmacy")
