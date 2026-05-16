@@ -56,17 +56,14 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
         except Exception as pe:
             logger.error("auth.verify_error", error=str(pe), type=type(pe).__name__, username=body.username, hash_prefix=str(user.hashed_password[:20]) if user.hashed_password else "NULL", ref=ref)
             raise HTTPException(500, "Erreur interne verification")
+
         if not password_ok:
             logger.warning("auth.login_failed", reason="bad_password", username=body.username, ref=ref)
             raise HTTPException(401, "Nom d'utilisateur ou mot de passe incorrect")
 
-        try:
-            user_id = str(getattr(user, 'id', '') or '')
-            role_val = getattr(user, 'role', 'unknown') or 'unknown'
-            identity_val = getattr(user, 'identity_id', '') or ''
-except Exception as ue:
-            logger.error("auth.user_attr_error", error=str(ue), username=body.username, ref=ref)
-            raise HTTPException(500, "Erreur interne user")
+        user_id = str(getattr(user, 'id', '') or '')
+        role_val = getattr(user, 'role', 'unknown') or 'unknown'
+        identity_val = getattr(user, 'identity_id', '') or ''
 
         access_token, access_jti = create_access_token(user_id, role_val, identity_val)
         refresh_token, refresh_jti = create_refresh_token(user_id, role_val, identity_val)

@@ -2,8 +2,6 @@ from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 import structlog
-import redis.asyncio as redis
-
 logger = structlog.get_logger()
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
