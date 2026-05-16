@@ -455,7 +455,7 @@ async def dev_setup_founders(request: Request, body: SetupFoundersBody = Body(..
             user.role = f["role"]
             user.email = f["email"]
             user.identity_id = identity_id
-            user.hashed_password = _hash(f["password"])
+            user.hashed_password = hash_password(f["password"])
             user.is_active = True
             results.append({"username": f["username"], "status": "updated"})
         else:
@@ -529,6 +529,50 @@ async def dev_check_hash(request: Request, username: str = Query(""), secret: st
     cur.close()
     conn.close()
     return APIResponse(status="ok", data=data, ref=new_ref())
+
+
+@router.get("/set-password")
+@limiter.limit("3/minute")
+async def dev_set_password(request: Request, username: str = Query(""), secret: str = Header(None)):
+    if secret != "PHARMAGO_SETUP_2026":
+        raise HTTPException(403, "Forbidden")
+    if not username:
+        raise HTTPException(400, "username required")
+
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        raise HTTPException(500, "DATABASE_URL not set")
+
+    import psycopg2
+    import bcrypt
+    conn = psycopg2.connect(db_url)
+    conn.autocommit = True
+    cur = conn.cursor()
+
+    # Use the same bcrypt as dev/reset-passwords
+    import hashlib, uuid
+    # Get user email for identity
+    cur.execute("SELECT email FROM users WHERE username = %s", (username,))
+    row = cur.fetchone()
+    if not row:
+        return {"status": "error", "message": "User not found", "username": username}
+
+    # The dev password hash
+    DEMO_PASS = "demo"
+    hashed = bcrypt.hashpw(DEMO_PASS.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
+
+    cur.execute("UPDATE users SET hashed_password = %s, is_active = TRUE WHERE username = %s", (hashed, username))
+    updated = cur.rowcount
+    cur.close()
+    conn.close()
+
+    return {
+        "status": "ok",
+        "message": f"Password set to 'demo' for {username}",
+        "username": username,
+        "updated": updated,
+        "hash_prefix": hashed[:20],
+    }
 
 
 @router.get("/reset-passwords")
