@@ -31,10 +31,12 @@ router = APIRouter()
 logger = structlog.get_logger()
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login")
 @limiter.limit("5/15minute")
 async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     ref = new_ref()
+    username = body.username
+    password = body.password
     try:
         result = await db.execute(
             select(User).where(User.username == body.username)
