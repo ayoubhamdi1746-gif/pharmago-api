@@ -48,16 +48,30 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
             logger.error("auth.login_no_hash", username=body.username, ref=ref)
             raise HTTPException(500, "Compte mal configuré, contactez l'administrateur")
 
-        password_ok = verify_password(body.password, user.hashed_password)
+        try:
+            password_ok = verify_password(body.password, user.hashed_password)
+        except Exception as pe:
+            logger.error("auth.verify_error", error=str(pe), type=type(pe).__name__, username=body.username, hash_prefix=str(user.hashed_password[:20]) if user.hashed_password else "NULL", ref=ref)
+            raise HTTPException(500, "Erreur interne verification")
         if not password_ok:
             logger.warning("auth.login_failed", reason="bad_password", username=body.username, ref=ref)
             raise HTTPException(401, "Nom d'utilisateur ou mot de passe incorrect")
 
-        user_id = str(getattr(user, 'id', '') or '')
-        role_val = getattr(user, 'role', 'unknown') or 'unknown'
-        identity_val = getattr(user, 'identity_id', '') or ''
-        access_token = create_access_token(user_id, role_val, identity_val)
-        refresh_token = create_refresh_token(user_id, role_val, identity_val)
+        try:
+            user_id = str(getattr(user, 'id', '') or '')
+            role_val = getattr(user, 'role', 'unknown') or 'unknown'
+            identity_val = getattr(user, 'identity_id', '') or ''
+        except Exception as ue:
+            logger.error("auth.user_attr_error", error=str(ue), username=body.username, ref=ref)
+            raise HTTPException(500, "Erreur interne user")
+
+        try:
+            access_token = create_access_token(user_id, role_val, identity_val)
+            refresh_token = create_refresh_token(user_id, role_val, identity_val)
+        except Exception as te:
+            logger.error("auth.token_error", error=str(te), username=body.username, ref=ref)
+            raise HTTPException(500, "Erreur interne token")
+
         logger.info("auth.login_success", username=body.username, role=role_val, ref=ref)
         return TokenResponse(access_token=access_token, refresh_token=refresh_token)
     except HTTPException:
