@@ -120,6 +120,202 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     if not user:
         raise HTTPException(401, "User not found or inactive")
 
-    access_token = create_access_token(str(user.id), user.role, user.identity_id)
-    refresh_token = create_refresh_token(str(user.id), user.role, user.identity_id)
+    access_token = create_access_token(user.id, user.role, user.identity_id)
+    refresh_token = create_refresh_token(user.id, user.role, user.identity_id)
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
+
+
+@router.post("/register/pharmacy")
+@limiter.limit("3/minute")
+async def register_pharmacy(body: PharmacyRegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    try:
+        # Validate email uniqueness
+        result = await db.execute(select(User).where(User.email == body.email))
+        if result.scalar_one_or_none():
+            from app.exceptions.handlers import ConflictException
+            raise ConflictException("Email already registered", ref)
+
+        # Validate plan
+        try:
+            plan_enum = SubscriptionPlan(body.plan.upper())
+        except ValueError:
+            raise HTTPException(400, "Invalid plan. Choose STARTER, PRO, or ENTERPRISE")
+
+        # Hash password
+        hashed_password = hash_password(body.password)
+        
+        # Generate IDs
+        pharmacy_id = str(uuid.uuid4())
+        user_id = str(uuid.uuid4())
+        identity_id = hashlib.sha256(f"{body.email}:{pharmacy_id}".encode()).hexdigest()
+        
+        # Create user
+        user = User(
+            id=user_id,
+            username=body.email.split('@')[0][:20],  # Use email prefix as username
+            email=body.email,
+            hashed_password=hashed_password,
+            role="pharmacist",
+            identity_id=identity_id,
+            is_active=False,  # Pending verification
+            pharmacy_id=pharmacy_id,
+            city=body.city,
+        )
+        db.add(user)
+        
+        # Create pharmacy profile
+        pharmacy_profile = PharmacyProfile(
+            id=str(uuid.uuid4()),
+            user_id=user_id,
+            pharmacy_name=body.pharmacy_name,
+            city=body.city,
+            address=body.address,
+            phone=body.phone,
+        )
+        db.add(pharmacy_profile)
+        
+        # Create subscription
+        subscription = PharmacySubscription(
+            id=str(uuid.uuid4()),
+            pharmacy_id=pharmacy_id,
+            pharmacy_name=body.pharmacy_name,
+            city=body.city,
+            responsible_name=body.owner_name,
+            plan=plan_enum,
+            price_tnd=PLAN_PRICES[plan_enum],
+            started_at=datetime.utcnow(),
+            expires_at=datetime.utcnow() + timedelta(days=30),
+            is_active=True,
+            delivery_count_this_month=0,
+            delivery_limit=PLAN_LIMITS[plan_enum],
+        )
+        db.add(subscription)
+        
+        await db.commit()
+        
+        logger.info("pharmacy.registered", pharmacy_name=body.pharmacy_name, pharmacy_id=pharmacy_id)
+        
+        return {
+            "status": "ok",
+            "message": "Pharmacy registration submitted for verification",
+            "data": {
+                "user_id": user_id,
+                "pharmacy_id": pharmacy_id,
+                "subscription_id": str(subscription.id),
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        tb = "".join(traceback.format_exc())
+        logger.error("auth.pharmacy_registration_error", traceback=tb, error=str(e))
+        raise HTTPException(500, "Internal server error")
+
+
+@router.post("/register/patient")
+@limiter.limit("5/minute")
+async def register_patient(body: PatientRegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    try:
+        # Validate email uniqueness
+        result = await db.execute(select(User).where(User.email == body.email))
+        if result.scalar_one_or_none():
+            from app.exceptions.handlers import ConflictException
+            raise ConflictException("Email already registered", ref)
+
+        # Hash password
+        hashed_password = hash_password(body.password)
+        
+        # Generate IDs
+        user_id = str(uuid.uuid4())
+        identity_id = hashlib.sha256(f"{body.email}:{user_id}".encode()).hexdigest()
+        
+        # Create user
+        user = User(
+            id=user_id,
+            username=body.email.split('@')[0][:20],
+            email=body.email,
+            hashed_password=hashed_password,
+            role="patient",
+            identity_id=identity_id,
+            is_active=True,
+        )
+        db.add(user)
+        
+        await db.commit()
+        
+        # Generate access token
+        access_token = create_access_token(user.id, user.role, user.identity_id)
+        refresh_token = create_refresh_token(user.id, user.role, user.identity_id)
+        
+        logger.info("patient.registered", email=body.email)
+        
+        return {
+            "status": "ok",
+            "message": "Patient registered successfully",
+            "data": {
+                "user_id": user_id,
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "token_type": "bearer",
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        tb = "".join(traceback.format_exc())
+        logger.error("auth.patient_registration_error", traceback=tb, error=str(e))
+        raise HTTPException(500, "Internal server error")
+
+
+@router.post("/register/driver")
+@limiter.limit("5/minute")
+async def register_driver(body: DriverRegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    try:
+        # Validate email uniqueness
+        result = await db.execute(select(User).where(User.email == body.email))
+        if result.scalar_one_or_none():
+            from app.exceptions.handlers import ConflictException
+            raise ConflictException("Email already registered", ref)
+
+        # Validate pharmacy exists
+        pharmacy_result = await db.execute(select(User).where(User.id == body.pharmacy_id, User.role == "pharmacist"))
+        if not pharmacy_result.scalar_one_or_none():
+            raise HTTPException(400, "Invalid pharmacy ID")
+
+        # Hash password
+        hashed_password = hash_password(body.password)
+        
+        # Generate IDs
+        user_id = str(uuid.uuid4())
+        identity_id = hashlib.sha256(f"{body.email}:{user_id}".encode()).hexdigest()
+        
+        # Create user
+        user = User(
+            id=user_id,
+            username=body.email.split('@')[0][:20],
+            email=body.email,
+            hashed_password=hashed_password,
+            role="driver",
+            identity_id=identity_id,
+            is_active=False,  # Pending verification by pharmacy
+            pharmacy_id=body.pharmacy_id,
+        )
+        db.add(user)
+        
+        await db.commit()
+        
+        logger.info("driver.registered", email=body.email, pharmacy_id=body.pharmacy_id)
+        
+        return {
+            "status": "ok",
+            "message": "Driver registration submitted for pharmacy verification",
+            "data": {
+                "user_id": user_id,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        tb = "".join(traceback.format_exc())
+        logger.error("auth.driver_registration_error", traceback=tb, error=str(e))
+        raise HTTPException(500, "Internal server error")

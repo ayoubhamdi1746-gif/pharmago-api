@@ -34,6 +34,26 @@ class ValidationException(PharmaGoException):
 
 
 import traceback
+from fastapi import HTTPException
+
+FRENCH_MESSAGES = {
+    400: "Requête invalide",
+    401: "Session expirée, veuillez vous reconnecter",
+    403: "Accès non autorisé",
+    404: "Ressource introuvable",
+    409: "Conflit de données",
+    422: "Données invalides",
+    429: "Trop de tentatives, réessayez dans quelques minutes",
+    500: "Erreur interne, notre équipe a été notifiée",
+}
+
+async def http_exception_handler(request: Request, exc: HTTPException):
+    message = FRENCH_MESSAGES.get(exc.status_code, str(exc.detail))
+    logger.warning("http_exception", status=exc.status_code, path=request.url.path, detail=message)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"status": "error", "message": message, "data": None, "ref": str(exc.status_code)},
+    )
 
 
 async def pharmago_exception_handler(request: Request, exc: PharmaGoException):
@@ -50,11 +70,12 @@ async def catch_all_exception_handler(request: Request, exc: Exception):
     logger.error("unhandled_exception", path=request.url.path, error=str(exc), traceback=tb)
     return JSONResponse(
         status_code=500,
-        content={"status": "error", "message": "Internal server error", "data": None, "ref": "unhandled"},
+        content={"status": "error", "message": FRENCH_MESSAGES[500], "data": None, "ref": "unhandled"},
     )
 
 
 EXCEPTION_HANDLERS = {
+    HTTPException: http_exception_handler,
     PharmaGoException: pharmago_exception_handler,
     Exception: catch_all_exception_handler,
 }

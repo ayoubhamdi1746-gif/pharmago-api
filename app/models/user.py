@@ -16,4 +16,7 @@ class User(Base):
     pharmacy_id = Column(String(36), nullable=True)
     city = Column(String(100), nullable=True)
     email = Column(String(255), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    full_name = Column(String(255), nullable=True)
+    is_verified = Column(Boolean, default=False)

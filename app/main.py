@@ -17,6 +17,9 @@ from app.api.auth import router as auth_router
 from app.api.billing import router as billing_router
 from app.api.public import router as public_router
 from app.api.super_admin import router as super_admin_router
+from app.api.prescriptions import router as prescriptions_router
+from app.api.delivery import router as delivery_router
+from app.api.notifications import router as notifications_router
 from app.exceptions.handlers import EXCEPTION_HANDLERS
 
 logger = structlog.get_logger()
@@ -27,6 +30,14 @@ def create_app() -> FastAPI:
         settings.validate_secure()
     except RuntimeError as e:
         logger.warning("startup.validation_warning", error=str(e))
+
+    # Run auto-migration on startup
+    from app.database import get_engine, auto_migrate
+    import asyncio
+    try:
+        asyncio.get_event_loop().run_until_complete(auto_migrate())
+    except Exception as e:
+        logger.warning("startup.migration_warning", error=str(e))
 
     app = FastAPI(title="PharmaGo API")
 
@@ -60,9 +71,9 @@ def create_app() -> FastAPI:
         try:
             from app.database import check_db
             db_ok = await check_db()
-            return {"status": "ok", "db": "connected" if db_ok else "disconnected"}
+            return {"status": "ok", "db": "connected" if db_ok else "disconnected", "version": "1.0.0"}
         except Exception as e:
-            return {"status": "error", "db": "disconnected", "detail": str(e)}
+            return {"status": "error", "db": "disconnected", "detail": str(e), "version": "1.0.0"}
 
     @app.post("/seed/demo")
     @limiter.limit("1/minute")
@@ -158,6 +169,7 @@ def create_app() -> FastAPI:
     app.include_router(billing_router, prefix="/billing", tags=["billing"])
     app.include_router(public_router, prefix="/public", tags=["public"])
     app.include_router(super_admin_router, prefix="/admin", tags=["super_admin"])
+    app.include_router(notifications_router, prefix="/notifications", tags=["notifications"])
 
     if False:
         from app.api.dev import router as dev_router

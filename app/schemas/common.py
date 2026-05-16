@@ -112,3 +112,29 @@ class DeliveryFulfillRequest(BaseModel):
 
 class DoctorConfirmRequest(BaseModel):
     signed_token: str = ""
+
+
+class PharmacyRegisterRequest(BaseModel):
+    pharmacy_name: str
+    city: str
+    address: str
+    phone: str
+    owner_name: str
+    email: str
+    password: str
+    plan: str
+
+
+class PatientRegisterRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+    phone: str
+
+
+class DriverRegisterRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+    phone: str
+    pharmacy_id: str
