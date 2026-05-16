@@ -627,6 +627,46 @@ async def dev_reset_passwords(
     )
 
 
+@router.get("/set-final-passwords")
+@limiter.limit("2/minute")
+async def dev_set_final_passwords(request: Request):
+    secret = request.headers.get("X-Setup-Key")
+    if secret != "PHARMAGO_SETUP_2026":
+        raise HTTPException(403, "Forbidden")
+
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        raise HTTPException(500, "DATABASE_URL not set")
+
+    import psycopg2
+    import bcrypt
+
+    AYoub_PASSWORD = "PLACEHOLDER_AYOUB"
+    EYA_PASSWORD = "PLACEHOLDER_EYA"
+
+    conn = psycopg2.connect(db_url)
+    conn.autocommit = True
+    cur = conn.cursor()
+
+    results = []
+    for username, pw in [("ayoub", AYoub_PASSWORD), ("eya", EYA_PASSWORD)]:
+        hashed = bcrypt.hashpw(pw.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
+        cur.execute("UPDATE users SET hashed_password = %s, is_active = TRUE WHERE username = %s", (hashed, username))
+        updated = cur.rowcount
+        results.append({"username": username, "updated": updated, "hash_prefix": hashed[:10]})
+        if updated == 0:
+            results[-1]["error"] = "User not found"
+
+    cur.close()
+    conn.close()
+    return APIResponse(
+        status="ok",
+        message="DELETE /dev/set-final-passwords after use",
+        data={"results": results},
+        ref=new_ref()
+    )
+
+
 @router.get("/migrate-users")
 @limiter.limit("1/minute")
 async def dev_migrate_users(request: Request):
