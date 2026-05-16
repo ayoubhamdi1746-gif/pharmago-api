@@ -15,6 +15,7 @@ from app.models.user import User
 from app.models.billing import PharmacySubscription, SubscriptionPlan, PLAN_PRICES, PLAN_LIMITS
 from app.services.auth_service import (
     verify_password, create_access_token, create_refresh_token, decode_token, hash_password,
+    revoke_token,
 )
 from app.limiter import limiter
 
@@ -63,16 +64,12 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
             user_id = str(getattr(user, 'id', '') or '')
             role_val = getattr(user, 'role', 'unknown') or 'unknown'
             identity_val = getattr(user, 'identity_id', '') or ''
-        except Exception as ue:
+except Exception as ue:
             logger.error("auth.user_attr_error", error=str(ue), username=body.username, ref=ref)
             raise HTTPException(500, "Erreur interne user")
 
-        try:
-            access_token = create_access_token(user_id, role_val, identity_val)
-            refresh_token = create_refresh_token(user_id, role_val, identity_val)
-        except Exception as te:
-            logger.error("auth.token_error", error=str(te), username=body.username, ref=ref)
-            raise HTTPException(500, "Erreur interne token")
+        access_token, access_jti = create_access_token(user_id, role_val, identity_val)
+        refresh_token, refresh_jti = create_refresh_token(user_id, role_val, identity_val)
 
         logger.info("auth.login_success", username=body.username, role=role_val, ref=ref)
         return TokenResponse(access_token=access_token, refresh_token=refresh_token)
