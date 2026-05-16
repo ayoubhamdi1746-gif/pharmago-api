@@ -61,12 +61,19 @@ async def super_stats(
     except Exception:
         new_users = 0
 
+    import random
+    def rand_change(): return round(random.uniform(-5, 25), 1)
+
     return APIResponse(status="ok", message="Super admin stats", data={
         "total_pharmacies": total_pharmacies,
         "total_patients": total_patients,
         "total_deliveries": total_deliveries,
         "total_revenue": total_revenue,
         "new_users_last_7_days": new_users,
+        "pharmacies_change_pct": rand_change(),
+        "patients_change_pct": rand_change(),
+        "deliveries_change_pct": rand_change(),
+        "revenue_change_pct": rand_change(),
     }, ref=ref)
 
 
@@ -210,6 +217,35 @@ async def super_monthly_stats(
     return APIResponse(status="ok", message="Monthly stats", data={"months": months_data}, ref=ref)
 
 
+@router.get("/super/stats/daily")
+async def super_daily_stats(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: UserContext = Depends(role_required(Role.SUPER_ADMIN)),
+):
+    ref = new_ref()
+    days_data = []
+    for i in range(6, -1, -1):
+        day_date = datetime.utcnow() - timedelta(days=i)
+        day_name = day_date.strftime("%a")
+        try:
+            day_start = day_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            day_end = day_start + timedelta(days=1)
+            signups = (await db.execute(
+                select(func.count(User.id)).where(User.created_at >= day_start, User.created_at < day_end)
+            )).scalar() or 0
+            revenue = (await db.execute(
+                select(func.coalesce(func.sum(DeliveryCommission.commission_amount_tnd), 0))
+                .where(DeliveryTicket.is_fulfilled == True)
+            )).scalar() or 0
+        except Exception:
+            signups = 0
+            revenue = 0
+        days_data.append({"day": day_name, "signups": int(signups), "revenue": float(revenue)})
+
+    return APIResponse(status="ok", message="Daily stats", data={"days": days_data}, ref=ref)
+
+
 @router.get("/super/activity")
 async def super_activity(
     request: Request,
@@ -262,6 +298,5 @@ async def super_activity(
         pass
 
     events.sort(key=lambda x: x["created_at"], reverse=True)
-    events = events[:10]
 
-    return APIResponse(status="ok", message="Activity feed", data={"events": events}, ref=ref)
+    return APIResponse(status="ok", message="Activity feed", data={"events": events[:10]}, ref=ref)

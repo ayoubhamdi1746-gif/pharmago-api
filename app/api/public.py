@@ -57,6 +57,7 @@ async def create_demo_request(request: Request, body: DemoRequestCreate, db: Asy
 async def list_demo_requests(
     request: Request,
     db: AsyncSession = Depends(get_db),
+    user: UserContext = Depends(role_required(Role.SUPER_ADMIN)),
 ):
     from sqlalchemy import select, func
     from sqlalchemy import select, func
