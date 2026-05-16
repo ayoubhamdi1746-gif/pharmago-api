@@ -171,7 +171,7 @@ def create_app() -> FastAPI:
     app.include_router(super_admin_router, prefix="/admin", tags=["super_admin"])
     app.include_router(notifications_router, prefix="/notifications", tags=["notifications"])
 
-    if True:
+    if False:
         from app.api.dev import router as dev_router
         app.include_router(dev_router, prefix="/dev", tags=["dev"])
 
