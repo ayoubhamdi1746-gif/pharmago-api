@@ -4,10 +4,12 @@ import traceback
 import uuid
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
+from app.logging.cfg import new_ref
 from app.schemas.common import LoginRequest, TokenResponse, RefreshRequest, PharmacyRegisterRequest, PatientRegisterRequest, DriverRegisterRequest
 from app.models.user import User
 from app.models.billing import PharmacySubscription, SubscriptionPlan, PLAN_PRICES, PLAN_LIMITS
@@ -51,18 +53,23 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
             logger.warning("auth.login_failed", reason="bad_password", username=body.username, ref=ref)
             raise HTTPException(401, "Nom d'utilisateur ou mot de passe incorrect")
 
-        role_val = str(user.role) if user.role else "unknown"
-        identity_val = str(user.identity_id) if user.identity_id else ""
-        access_token = create_access_token(str(user.id), role_val, identity_val)
-        refresh_token = create_refresh_token(str(user.id), role_val, identity_val)
+        user_id = str(getattr(user, 'id', '') or '')
+        role_val = getattr(user, 'role', 'unknown') or 'unknown'
+        identity_val = getattr(user, 'identity_id', '') or ''
+        access_token = create_access_token(user_id, role_val, identity_val)
+        refresh_token = create_refresh_token(user_id, role_val, identity_val)
         logger.info("auth.login_success", username=body.username, role=role_val, ref=ref)
         return TokenResponse(access_token=access_token, refresh_token=refresh_token)
     except HTTPException:
         raise
     except Exception as e:
-        tb = "".join(traceback.format_exc())
-        logger.error("auth.login_error", traceback=tb, error=str(e), error_type=type(e).__name__, username=body.username, ref=ref)
-        raise HTTPException(500, "Erreur interne")
+        import sys
+        tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+        logger.error("auth.login_crash", traceback=tb, error=str(e), error_type=type(e).__name__, username=body.username, ref=ref)
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": "Erreur interne", "data": None, "ref": ref},
+        )
 
 
 @router.post("/register-pharmacy")
