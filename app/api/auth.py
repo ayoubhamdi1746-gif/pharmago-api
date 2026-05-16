@@ -61,7 +61,7 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
             logger.warning("auth.login_failed", reason="bad_password", username=body.username, ref=ref)
             raise HTTPException(401, "Nom d'utilisateur ou mot de passe incorrect")
 
-user_id = str(getattr(user, 'id', '') or '')
+        user_id = str(getattr(user, 'id', '') or '')
         role_val = getattr(user, 'role', 'unknown') or 'unknown'
         identity_val = getattr(user, 'identity_id', '') or ''
 
