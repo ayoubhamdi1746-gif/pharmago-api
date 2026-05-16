@@ -641,8 +641,7 @@ async def dev_set_final_passwords(request: Request):
     import psycopg2
     import bcrypt
 
-    AYoub_PASSWORD = "soniatounsi20"
-    EYA_PASSWORD = "josephine19"
+    AYoub_PASSWORD = "PLACEHOLDER"
 
     conn = psycopg2.connect(db_url)
     conn.autocommit = True
