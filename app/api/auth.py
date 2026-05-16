@@ -67,9 +67,9 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
 
         logger.info("auth.login_steps", username=body.username, ref=ref, step="before_access_token")
 
-        access_token, access_jti = create_access_token(user_id, role_val, identity_val)
+        access_token = create_access_token(user_id, role_val, identity_val)
         logger.info("auth.login_steps", username=body.username, ref=ref, step="before_refresh_token")
-        refresh_token, refresh_jti = create_refresh_token(user_id, role_val, identity_val)
+        refresh_token = create_refresh_token(user_id, role_val, identity_val)
 
         logger.info("auth.login_success", username=body.username, role=role_val, ref=ref)
         return TokenResponse(access_token=access_token, refresh_token=refresh_token)
