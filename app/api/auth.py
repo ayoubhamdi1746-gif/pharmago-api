@@ -69,7 +69,11 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
 
         access_token = create_access_token(user_id, role_val, identity_val)
         logger.info("auth.login_steps", username=body.username, ref=ref, step="before_refresh_token")
-        refresh_token = create_refresh_token(user_id, role_val, identity_val)
+        refresh_token_result = create_refresh_token(user_id, role_val, identity_val)
+        if isinstance(refresh_token_result, tuple):
+            refresh_token = refresh_token_result[0]
+        else:
+            refresh_token = refresh_token_result
 
         logger.info("auth.login_success", username=body.username, role=role_val, ref=ref)
         return TokenResponse(access_token=access_token, refresh_token=refresh_token)
