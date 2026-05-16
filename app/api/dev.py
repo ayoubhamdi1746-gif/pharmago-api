@@ -1,5 +1,4 @@
-import uuid
-import structlog
+import uuid, structlog, bcrypt
 from datetime import datetime, timedelta
 import hashlib
 import os
@@ -549,9 +548,6 @@ async def dev_set_password(request: Request, username: str = Query(""), secret: 
     conn.autocommit = True
     cur = conn.cursor()
 
-    # Use the same bcrypt as dev/reset-passwords
-    import hashlib, uuid
-    # Get user email for identity
     cur.execute("SELECT email FROM users WHERE username = %s", (username,))
     row = cur.fetchone()
     if not row:
