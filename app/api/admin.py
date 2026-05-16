@@ -220,7 +220,7 @@ async def admin_list_payouts(
 async def admin_mark_payout_paid(
     payout_id: uuid.UUID, request: Request,
     db: AsyncSession = Depends(get_db),
-    user: UserContext = Depends(role_required(Role.ADMIN)),
+    user: UserContext = Depends(role_required(Role.ADMIN, Role.SUPER_ADMIN)),
 ):
     ref = new_ref()
     payout = await db.get(DriverPayout, payout_id)
@@ -344,7 +344,7 @@ async def admin_revenue(
 async def admin_list_pharmacies(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: UserContext = Depends(role_required(Role.ADMIN)),
+    user: UserContext = Depends(role_required(Role.ADMIN, Role.SUPER_ADMIN)),
 ):
     ref = new_ref()
     subs = (await db.execute(
@@ -371,11 +371,32 @@ async def admin_list_pharmacies(
     }, ref=ref)
 
 
+@router.patch("/pharmacies/{pharmacy_id}")
+async def admin_update_pharmacy(
+    pharmacy_id: uuid.UUID, request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: UserContext = Depends(role_required(Role.ADMIN, Role.SUPER_ADMIN)),
+):
+    ref = new_ref()
+    sub = (await db.execute(
+        select(PharmacySubscription).where(PharmacySubscription.pharmacy_id == pharmacy_id)
+    )).scalar_one_or_none()
+    if not sub:
+        raise NotFoundException("Pharmacie non trouvée", ref)
+    body = await request.json()
+    if "is_active" in body:
+        sub.is_active = body["is_active"]
+    await db.commit()
+    return APIResponse(status="ok", message="Pharmacie mise à jour", data={
+        "id": str(sub.id), "is_active": sub.is_active,
+    }, ref=ref)
+
+
 @router.patch("/pharmacies/{pharmacy_id}/suspend")
 async def admin_suspend_pharmacy(
     pharmacy_id: uuid.UUID, request: Request,
     db: AsyncSession = Depends(get_db),
-    user: UserContext = Depends(role_required(Role.ADMIN)),
+    user: UserContext = Depends(role_required(Role.ADMIN, Role.SUPER_ADMIN)),
 ):
     ref = new_ref()
     sub = (await db.execute(

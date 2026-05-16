@@ -87,7 +87,11 @@ async def list_demo_requests(
 
 
 @router.patch("/demo-requests/{request_id}/process")
-async def mark_demo_processed(request_id: str, db: AsyncSession = Depends(get_db)):
+async def mark_demo_processed(
+    request_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: UserContext = Depends(role_required(Role.SUPER_ADMIN, Role.ADMIN)),
+):
     demo = await db.get(DemoRequest, request_id)
     if not demo:
         from app.exceptions.handlers import NotFoundException
