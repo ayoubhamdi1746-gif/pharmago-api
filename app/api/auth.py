@@ -37,12 +37,22 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
             select(User).where(User.username == body.username, User.is_active == True)
         )
         user = result.scalar_one_or_none()
-        if not user or not verify_password(body.password, user.hashed_password):
-            logger.warning("auth.login_failed", account_exists=user is not None)
-            raise HTTPException(401, "Invalid username or password")
+        if not user:
+            logger.warning("auth.login_failed", reason="user_not_found", username=body.username)
+            raise HTTPException(401, "Nom d'utilisateur ou mot de passe incorrect")
 
-        access_token = create_access_token(str(user.id), user.role, user.identity_id)
-        refresh_token = create_refresh_token(str(user.id), user.role, user.identity_id)
+        try:
+            password_ok = verify_password(body.password, user.hashed_password)
+        except Exception as pw_err:
+            logger.error("auth.verify_password_error", error=str(pw_err), username=body.username, hash_prefix=str(user.hashed_password[:20]) if user.hashed_password else "NULL")
+            raise HTTPException(500, "Erreur interne de vérification")
+
+        if not password_ok:
+            logger.warning("auth.login_failed", reason="bad_password", username=body.username)
+            raise HTTPException(401, "Nom d'utilisateur ou mot de passe incorrect")
+
+        access_token = create_access_token(str(user.id), user.role or "unknown", user.identity_id or "")
+        refresh_token = create_refresh_token(str(user.id), user.role or "unknown", user.identity_id or "")
         return TokenResponse(access_token=access_token, refresh_token=refresh_token)
     except HTTPException:
         raise
