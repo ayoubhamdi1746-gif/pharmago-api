@@ -2,7 +2,7 @@ import structlog
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.api.deps import get_db
+from app.api.deps import get_db, Role, role_required, UserContext
 from app.schemas.common import APIResponse
 from app.models.demo_request import DemoRequest
 from app.logging.cfg import new_ref
