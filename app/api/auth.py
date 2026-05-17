@@ -13,6 +13,7 @@ from app.logging.cfg import new_ref
 from app.schemas.common import LoginRequest, TokenResponse, RefreshRequest, PharmacyRegisterRequest, PatientRegisterRequest, DriverRegisterRequest
 from app.models.user import User
 from app.models.billing import PharmacySubscription, SubscriptionPlan, PLAN_PRICES, PLAN_LIMITS
+from app.models.pharmacy_profile import PharmacyProfile
 from app.services.auth_service import (
     verify_password, create_access_token, create_refresh_token, decode_token, hash_password,
     revoke_token,
@@ -166,6 +167,7 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
 @limiter.limit("3/minute")
 async def register_pharmacy(body: PharmacyRegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
     try:
+        ref = new_ref()
         # Validate email uniqueness
         result = await db.execute(select(User).where(User.email == body.email))
         if result.scalar_one_or_none():
@@ -253,6 +255,7 @@ async def register_pharmacy(body: PharmacyRegisterRequest, request: Request, db:
 @limiter.limit("5/minute")
 async def register_patient(body: PatientRegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
     try:
+        ref = new_ref()
         # Validate email uniqueness
         result = await db.execute(select(User).where(User.email == body.email))
         if result.scalar_one_or_none():
@@ -308,6 +311,7 @@ async def register_patient(body: PatientRegisterRequest, request: Request, db: A
 @limiter.limit("5/minute")
 async def register_driver(body: DriverRegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
     try:
+        ref = new_ref()
         # Validate email uniqueness
         result = await db.execute(select(User).where(User.email == body.email))
         if result.scalar_one_or_none():

@@ -1,6 +1,7 @@
 import structlog
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db, Role, role_required, UserContext
 from app.schemas.common import APIResponse
@@ -59,8 +60,6 @@ async def list_demo_requests(
     db: AsyncSession = Depends(get_db),
     user: UserContext = Depends(role_required(Role.SUPER_ADMIN)),
 ):
-    from sqlalchemy import select, func
-    from sqlalchemy import select, func
     total = await db.execute(select(func.count(DemoRequest.id)))
     total = total.scalar()
 

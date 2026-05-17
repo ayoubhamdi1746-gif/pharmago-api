@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db, Role, role_required, UserContext
 from app.schemas.common import APIResponse
 from app.models.user import User
-from app.models.billing import PharmacySubscription, DeliveryCommission
+from app.models.billing import PharmacySubscription, DeliveryCommission, DriverPayout
 from app.models.delivery import DeliveryTicket
 from app.logging.cfg import new_ref
 
