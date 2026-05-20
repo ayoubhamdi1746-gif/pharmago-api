@@ -115,6 +115,8 @@ class BlindAssignmentEngine:
             driver_token_hash=ticket.driver_token_hash,
             delivery_ticket_id=ticket_id,
             amount_tnd=DRIVER_PAYOUT_AMOUNT_TND,
+            status=DriverPayoutStatus.PAID,
+            paid_at=datetime.utcnow(),
         )
         self.db.add(payout)
 
