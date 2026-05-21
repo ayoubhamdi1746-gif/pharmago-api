@@ -152,6 +152,22 @@ class PatientRegisterRequest(BaseModel):
         return v
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    otp: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def password_strong(cls, v: str) -> str:
+        validate_password(v)
+        return v
+
+
 class DriverRegisterRequest(BaseModel):
     name: str
     email: str

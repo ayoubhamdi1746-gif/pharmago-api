@@ -16,4 +16,4 @@ def user_or_ip_key(request: Request) -> str:
     return get_remote_address(request)
 
 
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=user_or_ip_key)

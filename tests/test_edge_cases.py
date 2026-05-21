@@ -272,3 +272,121 @@ async def test_unauthenticated_access_returns_401(client: AsyncClient):
 async def test_wrong_auth_scheme_returns_401(client: AsyncClient):
     resp = await client.get("/patient/my/deliveries", headers={"Authorization": "Basic dGVzdDp0ZXN0"})
     assert resp.status_code in (401, 403)
+
+
+async def test_logout_success(client: AsyncClient, db_session):
+    h = hashlib.sha256(b"logout-test-user").hexdigest()
+    db_session.add(User(id=h, role="patient", username="logout-test-user", identity_id=h, hashed_password="test", is_active=True))
+    await db_session.commit()
+    from app.services.auth_service import create_access_token
+    token = create_access_token(h, "patient", h)
+    resp = await client.post("/auth/logout", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data.get("status") == "ok"
+
+
+async def test_logout_without_token_returns_error(client: AsyncClient):
+    resp = await client.post("/auth/logout")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data.get("status") == "error"
+
+
+async def test_forgot_password_unknown_email_returns_ok(client: AsyncClient, db_session):
+    resp = await client.post("/auth/forgot-password", json={"email": "nonexistent@test.com"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data.get("status") == "ok"
+
+
+async def test_forgot_password_known_email_returns_ok(client: AsyncClient, db_session):
+    from app.services.auth_service import hash_password
+    h = hashlib.sha256(b"forgotpw-test").hexdigest()
+    db_session.add(User(id=h, role="patient", username="forgotpw-test", email="forgotpw@test.com", identity_id=h, hashed_password=hash_password("TestP@ss1"), is_active=True))
+    await db_session.commit()
+    resp = await client.post("/auth/forgot-password", json={"email": "forgotpw@test.com"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data.get("status") == "ok"
+
+
+async def test_reset_password_success(client: AsyncClient, db_session):
+    from app.services.auth_service import hash_password, verify_password
+    from app.services.otp_service import generate_otp
+    from datetime import datetime, timedelta
+    h = hashlib.sha256(b"resetpw-test").hexdigest()
+    db_session.add(User(id=h, role="patient", username="resetpw-test", email="resetpw@test.com", identity_id=h, hashed_password=hash_password("OldP@ss1"), is_active=True))
+    await db_session.commit()
+    # Inject OTP directly into store
+    otp, otp_hash = generate_otp()
+    from app.api.auth import _reset_otp_store, RESET_OTP_TTL_MINUTES
+    _reset_otp_store["resetpw@test.com"] = (otp_hash, datetime.utcnow() + timedelta(minutes=RESET_OTP_TTL_MINUTES))
+    resp = await client.post("/auth/reset-password", json={"email": "resetpw@test.com", "otp": otp, "new_password": "NewP@ss!2024X"})
+    assert resp.status_code == 200, f"got {resp.status_code}: {resp.text}"
+    data = resp.json()
+    assert data.get("status") == "ok"
+
+
+async def test_reset_password_wrong_otp_returns_400(client: AsyncClient, db_session):
+    from app.services.auth_service import hash_password
+    from app.services.otp_service import generate_otp
+    from datetime import datetime, timedelta
+    h = hashlib.sha256(b"resetpw-wrong").hexdigest()
+    db_session.add(User(id=h, role="patient", username="resetpw-wrong", email="resetpw-wrong@test.com", identity_id=h, hashed_password=hash_password("OldP@ss1"), is_active=True))
+    await db_session.commit()
+    otp, otp_hash = generate_otp()
+    from app.api.auth import _reset_otp_store, RESET_OTP_TTL_MINUTES
+    _reset_otp_store["resetpw-wrong@test.com"] = (otp_hash, datetime.utcnow() + timedelta(minutes=RESET_OTP_TTL_MINUTES))
+    resp = await client.post("/auth/reset-password", json={"email": "resetpw-wrong@test.com", "otp": "000000", "new_password": "NewP@ss!2024X"})
+    assert resp.status_code == 400
+    data = resp.json()
+    assert "Invalid OTP" in str(data.get("message", ""))
+
+
+async def test_reset_password_no_otp_requested_returns_400(client: AsyncClient):
+    resp = await client.post("/auth/reset-password", json={"email": "no-otp@test.com", "otp": "123456", "new_password": "NewP@ss!2024X"})
+    assert resp.status_code == 400
+    data = resp.json()
+    assert "OTP" in str(data.get("message", ""))
+
+
+async def test_reset_password_expired_otp_returns_400(client: AsyncClient, db_session):
+    from app.services.auth_service import hash_password
+    from app.services.otp_service import generate_otp
+    from datetime import datetime, timedelta
+    h = hashlib.sha256(b"resetpw-expired").hexdigest()
+    db_session.add(User(id=h, role="patient", username="resetpw-expired", email="resetpw-expired@test.com", identity_id=h, hashed_password=hash_password("OldP@ss1"), is_active=True))
+    await db_session.commit()
+    otp, otp_hash = generate_otp()
+    expired = datetime.utcnow() - timedelta(minutes=1)
+    from app.api.auth import _reset_otp_store
+    _reset_otp_store["resetpw-expired@test.com"] = (otp_hash, expired)
+    resp = await client.post("/auth/reset-password", json={"email": "resetpw-expired@test.com", "otp": otp, "new_password": "NewP@ss!2024X"})
+    assert resp.status_code == 400
+    data = resp.json()
+    assert "OTP has expired" in str(data.get("message", ""))
+
+
+async def test_change_password_success(client: AsyncClient, db_session):
+    from app.services.auth_service import hash_password, create_access_token
+    h = hashlib.sha256(b"changepw-test").hexdigest()
+    db_session.add(User(id=h, role="patient", username="changepw-test", identity_id=h, hashed_password=hash_password("OldP@ss1"), is_active=True))
+    await db_session.commit()
+    token = create_access_token(h, "patient", h)
+    resp = await client.post("/auth/change-password", json={"current_password": "OldP@ss1", "new_password": "NewP@ss!2024X"}, headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200, f"got {resp.status_code}: {resp.text}"
+    data = resp.json()
+    assert data.get("status") == "ok"
+
+
+async def test_change_password_wrong_current_returns_error(client: AsyncClient, db_session):
+    from app.services.auth_service import hash_password, create_access_token
+    h = hashlib.sha256(b"changepw-wrong").hexdigest()
+    db_session.add(User(id=h, role="patient", username="changepw-wrong", identity_id=h, hashed_password=hash_password("OldP@ss1"), is_active=True))
+    await db_session.commit()
+    token = create_access_token(h, "patient", h)
+    resp = await client.post("/auth/change-password", json={"current_password": "WrongOld", "new_password": "NewP@ss!2024X"}, headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data.get("status") == "error"

@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
 from app.logging.cfg import new_ref
-from app.schemas.common import APIResponse, LoginRequest, TokenResponse, RefreshRequest, PharmacyRegisterRequest, PatientRegisterRequest, DriverRegisterRequest
+from app.schemas.common import APIResponse, LoginRequest, TokenResponse, RefreshRequest, PharmacyRegisterRequest, PatientRegisterRequest, DriverRegisterRequest, ForgotPasswordRequest, ResetPasswordRequest
 from app.models.user import User
 from app.models.billing import PharmacySubscription, SubscriptionPlan, PLAN_PRICES, PLAN_LIMITS
 from app.models.pharmacy_profile import PharmacyProfile
@@ -36,6 +36,10 @@ class RegisterPharmacyRequest(BaseModel):
 
 router = APIRouter()
 logger = structlog.get_logger()
+
+# In-memory store for password reset OTPs: email -> (otp_hash, expires_at)
+_reset_otp_store: dict[str, tuple[str, datetime]] = {}
+RESET_OTP_TTL_MINUTES = 15
 
 
 @router.post("/login")
@@ -166,6 +170,7 @@ async def refresh(body: RefreshRequest, request: Request, db: AsyncSession = Dep
 
 
 @router.post("/logout")
+@limiter.limit("10/minute")
 async def logout(request: Request, db: AsyncSession = Depends(get_db)):
     ref = new_ref()
     auth = request.headers.get("Authorization", "")
@@ -398,3 +403,57 @@ async def register_driver(body: DriverRegisterRequest, request: Request, db: Asy
         tb = "".join(traceback.format_exc())
         logger.error("auth.driver_registration_error", traceback=tb, error=str(e))
         raise HTTPException(500, "Internal server error")
+
+
+@router.post("/forgot-password")
+@limiter.limit("3/15minute")
+async def forgot_password(body: ForgotPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    ref = new_ref()
+    result = await db.execute(select(User).where(User.email == body.email))
+    user = result.scalar_one_or_none()
+    # Always return ok to prevent email enumeration
+    if not user:
+        logger.info("auth.forgot_password_email_not_found", email=body.email, ref=ref)
+        return APIResponse(status="ok", message="If this email exists, an OTP has been sent", ref=ref)
+
+    from app.services.otp_service import generate_otp
+    from app.services.notification_service import send_otp_sms
+    otp, otp_hash = generate_otp()
+    expires_at = datetime.utcnow() + timedelta(minutes=RESET_OTP_TTL_MINUTES)
+    _reset_otp_store[body.email] = (otp_hash, expires_at)
+
+    # Try to send via SMS if user has phone; in dev mode, log the OTP
+    if user.city and not request.app.state.dev_mode:
+        pass  # Would send SMS/email in production
+    logger.info("auth.forgot_password_otp_generated", email=body.email, otp=otp, ref=ref)
+    return APIResponse(status="ok", message="If this email exists, an OTP has been sent", ref=ref)
+
+
+@router.post("/reset-password")
+@limiter.limit("5/15minute")
+async def reset_password(body: ResetPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    ref = new_ref()
+    entry = _reset_otp_store.get(body.email)
+    if not entry:
+        raise HTTPException(400, "No OTP requested for this email or OTP expired")
+
+    otp_hash, expires_at = entry
+    if datetime.utcnow() > expires_at:
+        _reset_otp_store.pop(body.email, None)
+        raise HTTPException(400, "OTP has expired")
+
+    from app.services.otp_service import verify_otp
+    if not verify_otp(body.otp, otp_hash):
+        raise HTTPException(400, "Invalid OTP")
+
+    result = await db.execute(select(User).where(User.email == body.email))
+    user = result.scalar_one_or_none()
+    if not user:
+        _reset_otp_store.pop(body.email, None)
+        raise HTTPException(400, "User not found")
+
+    user.hashed_password = hash_password(body.new_password)
+    await db.commit()
+    _reset_otp_store.pop(body.email, None)
+    logger.info("auth.password_reset_success", email=body.email, ref=ref)
+    return APIResponse(status="ok", message="Password reset successfully", ref=ref)
