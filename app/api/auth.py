@@ -21,6 +21,11 @@ from app.services.auth_service import (
 from app.limiter import limiter
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
 class RegisterPharmacyRequest(BaseModel):
     pharmacy_name: str
     responsible_name: str
@@ -158,6 +163,53 @@ async def refresh(body: RefreshRequest, request: Request, db: AsyncSession = Dep
     access_token = create_access_token(user.id, user.role, user.identity_id)
     refresh_token = create_refresh_token(user.id, user.role, user.identity_id)
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
+
+
+@router.post("/logout")
+async def logout(request: Request, db: AsyncSession = Depends(get_db)):
+    ref = new_ref()
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return APIResponse(status="error", message="Missing or invalid token", ref=ref)
+    token = auth[7:]
+    try:
+        await revoke_token(token)
+    except Exception as e:
+        logger.warning("auth.logout_revoke_error", error=str(e), ref=ref)
+    return APIResponse(status="ok", message="Logged out successfully", ref=ref)
+
+
+@router.post("/change-password")
+@limiter.limit("3/minute")
+async def change_password(body: ChangePasswordRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    ref = new_ref()
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return APIResponse(status="error", message="Authentication required", ref=ref)
+    token = auth[7:]
+    payload = decode_token(token)
+    if payload is None:
+        return APIResponse(status="error", message="Invalid or expired token", ref=ref)
+
+    user_id = payload.get("sub")
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        return APIResponse(status="error", message="User not found", ref=ref)
+
+    if not verify_password(body.current_password, user.hashed_password):
+        return APIResponse(status="error", message="Current password is incorrect", ref=ref)
+
+    from app.services.password_policy import validate_password
+    try:
+        validate_password(body.new_password)
+    except ValueError as e:
+        return APIResponse(status="error", message=str(e), ref=ref)
+
+    user.hashed_password = hash_password(body.new_password)
+    await db.commit()
+    logger.info("auth.password_changed", user_id=user_id, ref=ref)
+    return APIResponse(status="ok", message="Password changed successfully", ref=ref)
 
 
 @router.post("/register/pharmacy")

@@ -111,9 +111,6 @@ def create_app() -> FastAPI:
         except ImportError:
             pass
 
-    return app
-
-
     @app.middleware("http")
     async def request_logging_middleware(request: Request, call_next):
         import time
