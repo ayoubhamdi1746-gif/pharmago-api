@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
 from app.logging.cfg import new_ref
-from app.schemas.common import LoginRequest, TokenResponse, RefreshRequest, PharmacyRegisterRequest, PatientRegisterRequest, DriverRegisterRequest
+from app.schemas.common import APIResponse, LoginRequest, TokenResponse, RefreshRequest, PharmacyRegisterRequest, PatientRegisterRequest, DriverRegisterRequest
 from app.models.user import User
 from app.models.billing import PharmacySubscription, SubscriptionPlan, PLAN_PRICES, PLAN_LIMITS
 from app.models.pharmacy_profile import PharmacyProfile
@@ -127,14 +127,10 @@ async def register_pharmacy(body: RegisterPharmacyRequest, request: Request, db:
     await db.commit()
 
     logger.info("pharmacy.registered", pharmacy_name=body.pharmacy_name, pharmacy_id=pharmacy_id)
-    return {
-        "status": "ok",
-        "message": "Pharmacy registered. Login credentials will be provided separately.",
-        "data": {
-            "pharmacy_id": pharmacy_id,
-            "username": username,
-        },
-    }
+    return APIResponse(status="ok", message="Pharmacy registered. Login credentials will be provided separately.", data={
+        "pharmacy_id": pharmacy_id,
+        "username": username,
+    })
 
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -217,8 +213,8 @@ async def register_pharmacy(body: PharmacyRegisterRequest, request: Request, db:
         
         # Create subscription
         subscription = PharmacySubscription(
-            id=str(uuid.uuid4()),
-            pharmacy_id=pharmacy_id,
+            id=uuid.uuid4(),
+            pharmacy_id=uuid.UUID(pharmacy_id),
             pharmacy_name=body.pharmacy_name,
             city=body.city,
             responsible_name=body.owner_name,
@@ -236,15 +232,11 @@ async def register_pharmacy(body: PharmacyRegisterRequest, request: Request, db:
         
         logger.info("pharmacy.registered", pharmacy_name=body.pharmacy_name, pharmacy_id=pharmacy_id)
         
-        return {
-            "status": "ok",
-            "message": "Pharmacy registration submitted for verification",
-            "data": {
-                "user_id": user_id,
-                "pharmacy_id": pharmacy_id,
-                "subscription_id": str(subscription.id),
-            },
-        }
+        return APIResponse(status="ok", message="Pharmacy registration submitted for verification", data={
+            "user_id": user_id,
+            "pharmacy_id": pharmacy_id,
+            "subscription_id": str(subscription.id),
+        })
     except HTTPException:
         raise
     except Exception as e:
@@ -291,16 +283,12 @@ async def register_patient(body: PatientRegisterRequest, request: Request, db: A
         
         logger.info("patient.registered", email=body.email)
         
-        return {
-            "status": "ok",
-            "message": "Patient registered successfully",
-            "data": {
-                "user_id": user_id,
-                "access_token": access_token,
-                "refresh_token": refresh_token,
-                "token_type": "bearer",
-            },
-        }
+        return APIResponse(status="ok", message="Patient registered successfully", data={
+            "user_id": user_id,
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+        })
     except HTTPException:
         raise
     except Exception as e:
@@ -349,13 +337,9 @@ async def register_driver(body: DriverRegisterRequest, request: Request, db: Asy
         
         logger.info("driver.registered", email=body.email, pharmacy_id=body.pharmacy_id)
         
-        return {
-            "status": "ok",
-            "message": "Driver registration submitted for pharmacy verification",
-            "data": {
-                "user_id": user_id,
-            },
-        }
+        return APIResponse(status="ok", message="Driver registration submitted for pharmacy verification", data={
+            "user_id": user_id,
+        })
     except HTTPException:
         raise
     except Exception as e:

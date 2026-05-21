@@ -1,7 +1,8 @@
 import uuid, structlog
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, Request, Query
-from sqlalchemy import select, func, text
+from pydantic import BaseModel
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db, Role, role_required, UserContext
 from app.schemas.common import APIResponse
@@ -9,12 +10,14 @@ from app.models.user import User
 from app.models.billing import PharmacySubscription, DeliveryCommission, DriverPayout
 from app.models.delivery import DeliveryTicket
 from app.logging.cfg import new_ref
+from app.limiter import limiter
 
 router = APIRouter()
 logger = structlog.get_logger()
 
 
-@router.get("/super/stats")
+@router.get("/stats")
+@limiter.limit("30/minute")
 async def super_stats(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -61,8 +64,44 @@ async def super_stats(
     except Exception:
         new_users = 0
 
-    import random
-    def rand_change(): return round(random.uniform(-5, 25), 1)
+    # Calculate percentage changes from previous period (14-7 days ago)
+    try:
+        prev_pharmacies = await db.execute(
+            select(func.count(PharmacySubscription.id)).where(PharmacySubscription.started_at < seven_days_ago)
+        )
+        prev_pharmacies = prev_pharmacies.scalar() or 1
+        pharmacies_change_pct = round(((total_pharmacies - prev_pharmacies) / prev_pharmacies) * 100, 1)
+    except Exception:
+        pharmacies_change_pct = 0.0
+
+    try:
+        fourteen_days_ago = datetime.utcnow() - timedelta(days=14)
+        prev_patients = await db.execute(
+            select(func.count(User.id)).where(User.role == "patient", User.created_at < seven_days_ago)
+        )
+        prev_patients = prev_patients.scalar() or 1
+        patients_change_pct = round(((total_patients - prev_patients) / prev_patients) * 100, 1)
+    except Exception:
+        patients_change_pct = 0.0
+
+    try:
+        prev_deliveries = await db.execute(
+            select(func.count(DeliveryTicket.id)).where(DeliveryTicket.is_fulfilled == True, DeliveryTicket.created_at < seven_days_ago)
+        )
+        prev_deliveries = prev_deliveries.scalar() or 1
+        deliveries_change_pct = round(((total_deliveries - prev_deliveries) / prev_deliveries) * 100, 1)
+    except Exception:
+        deliveries_change_pct = 0.0
+
+    try:
+        prev_revenue = await db.execute(
+            select(func.coalesce(func.sum(DeliveryCommission.commission_amount_tnd), 0))
+            .where(DeliveryCommission.created_at < seven_days_ago)
+        )
+        prev_revenue = float(prev_revenue.scalar() or 1)
+        revenue_change_pct = round(((total_revenue - prev_revenue) / prev_revenue) * 100, 1)
+    except Exception:
+        revenue_change_pct = 0.0
 
     return APIResponse(status="ok", message="Super admin stats", data={
         "total_pharmacies": total_pharmacies,
@@ -70,14 +109,15 @@ async def super_stats(
         "total_deliveries": total_deliveries,
         "total_revenue": total_revenue,
         "new_users_last_7_days": new_users,
-        "pharmacies_change_pct": rand_change(),
-        "patients_change_pct": rand_change(),
-        "deliveries_change_pct": rand_change(),
-        "revenue_change_pct": rand_change(),
+        "pharmacies_change_pct": pharmacies_change_pct,
+        "patients_change_pct": patients_change_pct,
+        "deliveries_change_pct": deliveries_change_pct,
+        "revenue_change_pct": revenue_change_pct,
     }, ref=ref)
 
 
-@router.get("/super/users")
+@router.get("/users")
+@limiter.limit("30/minute")
 async def super_list_users(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -115,15 +155,19 @@ async def super_list_users(
     }, ref=ref)
 
 
-@router.patch("/super/users/{user_id}/role")
+class UpdateUserRoleRequest(BaseModel):
+    role: str
+
+
+@router.patch("/users/{user_id}/role")
+@limiter.limit("10/minute")
 async def super_update_role(
-    user_id: uuid.UUID, request: Request,
+    user_id: uuid.UUID, body: UpdateUserRoleRequest, request: Request,
     db: AsyncSession = Depends(get_db),
     user: UserContext = Depends(role_required(Role.SUPER_ADMIN)),
 ):
     ref = new_ref()
-    body = await request.json()
-    new_role = body.get("role", "").lower()
+    new_role = body.role.lower()
 
     valid_roles = {"patient", "pharmacist", "doctor", "driver", "admin", "super_admin"}
     if new_role not in valid_roles:
@@ -146,7 +190,8 @@ async def super_update_role(
     }, ref=ref)
 
 
-@router.delete("/super/users/{user_id}")
+@router.delete("/users/{user_id}")
+@limiter.limit("10/minute")
 async def super_delete_user(
     user_id: uuid.UUID, request: Request,
     db: AsyncSession = Depends(get_db),
@@ -169,7 +214,8 @@ async def super_delete_user(
     }, ref=ref)
 
 
-@router.get("/super/stats/monthly")
+@router.get("/stats/monthly")
+@limiter.limit("30/minute")
 async def super_monthly_stats(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -217,7 +263,8 @@ async def super_monthly_stats(
     return APIResponse(status="ok", message="Monthly stats", data={"months": months_data}, ref=ref)
 
 
-@router.get("/super/stats/daily")
+@router.get("/stats/daily")
+@limiter.limit("30/minute")
 async def super_daily_stats(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -246,7 +293,8 @@ async def super_daily_stats(
     return APIResponse(status="ok", message="Daily stats", data={"days": days_data}, ref=ref)
 
 
-@router.get("/super/activity")
+@router.get("/activity")
+@limiter.limit("30/minute")
 async def super_activity(
     request: Request,
     db: AsyncSession = Depends(get_db),

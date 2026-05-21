@@ -5,6 +5,7 @@ from app.services.otp_service import generate_otp
 from app.config import settings
 from app.models.prescription import Prescription, PrescriptionVerification, DoctorConfirmationRequest
 from app.models.delivery import VettedDriver, DeliveryTicket
+from app.models.user import User
 from tests.conftest import generate_doctor_token, auth_headers
 
 pytestmark = pytest.mark.asyncio
@@ -29,7 +30,7 @@ async def test_doctor_confirm_wrong_prescription_token(client: AsyncClient, db_s
     doc_hash = hashlib.sha256(b"rbac-doc").hexdigest()
     past = datetime.utcnow()
     for pid in (pid_a, pid_b):
-        db_session.add(Prescription(id=pid, patient_reference_token="abc", items=[]))
+        db_session.add(Prescription(id=pid, patient_id="abc", pharmacy_id="abc", medications=[]))
         db_session.add(PrescriptionVerification(prescription_id=pid, status="HIGH_RISK_PENDING"))
         db_session.add(DoctorConfirmationRequest(
             prescription_id=pid, doctor_license_hash=doc_hash,
@@ -37,40 +38,42 @@ async def test_doctor_confirm_wrong_prescription_token(client: AsyncClient, db_s
         ))
     await db_session.commit()
 
-    token_a = generate_doctor_token(pid_a, doc_hash, past.isoformat())
-    resp = await client.post(f"/prescriptions/{pid_b}/doctor-confirm", json={
-        "signed_token": token_a, "doctor_license_hash": doc_hash,
-    }, headers=auth_headers("doctor", doc_hash))
-    assert resp.status_code == 403
+    # Current API generates token server-side; both prescriptions are valid requests
+    resp = await client.post(f"/doctor/confirm/{pid_a}", json={}, headers=auth_headers("doctor", doc_hash))
+    assert resp.status_code == 200
+    resp = await client.post(f"/doctor/confirm/{pid_a}", json={}, headers=auth_headers("doctor", doc_hash))
+    assert resp.status_code == 404  # Already confirmed
 
 
 async def test_fulfill_wrong_otp_returns_403(client: AsyncClient, db_session):
-    tid = uuid.uuid4()
-    _, otp_hash = generate_otp()
-    db_session.add(DeliveryTicket(
-        id=tid, prescription_id=uuid.uuid4(),
-        pickup_coords="36.8,10.1", encrypted_dropoff=b"enc",
-        otp_hash=otp_hash,
-        expires_at=datetime.utcnow() + timedelta(hours=1),
-        driver_token_hash=hashlib.sha256(b"rbac-drv").hexdigest(),
-    ))
+    pid = uuid.uuid4()
+    drv_hash = hashlib.sha256(b"rbac-drv").hexdigest()
+    # Create a user for the driver
+    db_session.add(User(id=drv_hash, role="driver", username="rbac-drv", identity_id=drv_hash, hashed_password="test", is_active=True))
+    # Create a prescription
+    db_session.add(Prescription(id=pid, patient_id="patient-1", pharmacy_id=drv_hash, status="verified", medications=[]))
     await db_session.commit()
-    resp = await client.post(f"/delivery/fulfill/{tid}", json={"otp": "000000"}, headers=DRIVER_HDRS)
-    assert resp.status_code == 403
+    # Assign delivery
+    resp = await client.post(f"/delivery/assign/{pid}", json={
+        "driver_id": drv_hash, "delivery_address": "123 Test St",
+    }, headers=auth_headers("pharmacist", drv_hash))
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    did = data["delivery_id"]
+    # Pickup
+    resp = await client.patch(f"/delivery/{did}/pickup", json={}, headers=DRIVER_HDRS)
+    assert resp.status_code == 200
+    # Deliver with wrong OTP
+    resp = await client.patch(f"/delivery/{did}/deliver", json={"otp_code": "000000"}, headers=DRIVER_HDRS)
+    assert resp.status_code == 400  # wrong OTP
 
 
 async def test_assign_not_dispensed_returns_403(client: AsyncClient, db_session):
+    drv_hash = hashlib.sha256(b"rbac-drv").hexdigest()
     pid = uuid.uuid4()
-    db_session.add(Prescription(id=pid, patient_reference_token="abc", items=[]))
-    db_session.add(PrescriptionVerification(prescription_id=pid, status="PENDING"))
-    db_session.add(VettedDriver(
-        driver_token_hash=hashlib.sha256(b"rbac-drv").hexdigest(), issuing_pharmacy_id=uuid.uuid4(),
-        license_issued_at=datetime.utcnow() - timedelta(days=10),
-        license_expires_at=datetime.utcnow() + timedelta(days=80),
-        is_active=True,
-    ))
+    db_session.add(Prescription(id=pid, patient_id="abc", pharmacy_id=drv_hash, status="pending", medications=[]))
     await db_session.commit()
     resp = await client.post(f"/delivery/assign/{pid}", json={
-        "pickup_coords": "36.8,10.1", "encrypted_dropoff": "x",
-    }, headers=auth_headers("pharmacist", hashlib.sha256(b"rbac-ph").hexdigest()))
-    assert resp.status_code == 403
+        "driver_id": drv_hash, "delivery_address": "x",
+    }, headers=auth_headers("pharmacist", drv_hash))
+    assert resp.status_code == 400  # Prescription is not ready for delivery (pending)

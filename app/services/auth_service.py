@@ -13,7 +13,7 @@ ACCESS_TOKEN_EXPIRE_HOURS_DEFAULT = 8
 BLACKLIST_PREFIX = "token:blacklist:"
 REVOKED_SET = "tokens:revoked"
 
-_blocklist_store = set()
+_blocklist_store: set[str] = set()
 _redis_client = None
 
 
@@ -22,8 +22,9 @@ async def get_redis():
     if _redis_client is None:
         try:
             from app.config import settings
-            if settings.DATABASE_URL and "redis" in settings.DATABASE_URL:
-                _redis_client = redis.from_url(settings.DATABASE_URL.replace("postgres://", "redis://"))
+            if settings.REDIS_URL:
+                import redis as redis_module
+                _redis_client = redis_module.from_url(settings.REDIS_URL)
         except Exception:
             pass
     return _redis_client
@@ -69,7 +70,7 @@ def create_access_token(subject: str, role: str, identity_id: str, jti: str | No
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
-def create_refresh_token(subject: str, role: str, identity_id: str, jti: str | None = None) -> tuple[str, str]:
+def create_refresh_token(subject: str, role: str, identity_id: str, jti: str | None = None) -> str:
     from app.config import settings
     if jti is None:
         import uuid
@@ -86,12 +87,18 @@ def create_refresh_token(subject: str, role: str, identity_id: str, jti: str | N
         "jti": jti,
     }
     token = jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
-    return token, jti
+    return token
 
 
-def revoke_token(jti: str, token_type: str) -> None:
-    _blocklist_store.add(f"{token_type}:{jti}")
-    logger.info("token.revoked", jti=jti, type=token_type)
+async def revoke_token(token: str) -> None:
+    """Revoke a token by decoding it and adding its JTI to the blocklist"""
+    payload = decode_token(token)
+    if payload:
+        jti = payload.get("jti")
+        token_type = payload.get("type", "access")
+        if jti:
+            _blocklist_store.add(f"{token_type}:{jti}")
+            logger.info("token.revoked", jti=jti, type=token_type)
 
 
 def is_token_revoked(jti: str, token_type: str) -> bool:

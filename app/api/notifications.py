@@ -11,7 +11,7 @@ from app.models.prescription import Prescription, PrescriptionVerification
 from app.models.delivery import Delivery
 from app.models.billing import PharmacySubscription
 from app.logging.cfg import new_ref
-import json
+from app.limiter import limiter
 
 router = APIRouter()
 logger = structlog.get_logger()
@@ -32,6 +32,7 @@ def create_notification(db: AsyncSession, user_id: str, title: str, message: str
 
 
 @router.get("")
+@limiter.limit("30/minute")
 async def get_notifications(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -69,18 +70,14 @@ async def get_notifications(
                 "created_at": notification.created_at.isoformat() if notification.created_at else None,
             })
         
-        return {
-            "status": "ok",
-            "message": "Notifications retrieved",
-            "data": {
-                "notifications": notification_list,
-                "pagination": {
-                    "total": total,
-                    "offset": offset,
-                    "limit": limit,
-                },
+        return APIResponse(status="ok", message="Notifications retrieved", data={
+            "notifications": notification_list,
+            "pagination": {
+                "total": total,
+                "offset": offset,
+                "limit": limit,
             },
-        }
+        })
     except HTTPException:
         raise
     except Exception as e:
@@ -90,6 +87,7 @@ async def get_notifications(
 
 
 @router.patch("/{notification_id}/read")
+@limiter.limit("30/minute")
 async def mark_notification_as_read(
     notification_id: uuid.UUID,
     request: Request,
@@ -101,7 +99,7 @@ async def mark_notification_as_read(
         notification_result = await db.execute(
             select(Notification).where(
                 and_(
-                    Notification.id == str(notification_id),
+                    Notification.id == notification_id,
                     Notification.user_id == user.id
                 )
             )
@@ -114,14 +112,10 @@ async def mark_notification_as_read(
         notification.is_read = True
         await db.commit()
         
-        return {
-            "status": "ok",
-            "message": "Notification marked as read",
-            "data": {
-                "id": str(notification.id),
-                "is_read": True,
-            },
-        }
+        return APIResponse(status="ok", message="Notification marked as read", data={
+            "id": str(notification.id),
+            "is_read": True,
+        })
     except HTTPException:
         raise
     except Exception as e:
@@ -131,6 +125,7 @@ async def mark_notification_as_read(
 
 
 @router.get("/unread")
+@limiter.limit("30/minute")
 async def get_unread_count(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -145,13 +140,32 @@ async def get_unread_count(
                 )
             )
         )
-        count = result.scalar() or 0
-    except Exception:
-        count = 0
-    return {"status": "ok", "data": {"unread": count}}
+        unread_count = result.scalar() or 0
+        notifs_result = await db.execute(
+            select(Notification).where(
+                Notification.user_id == user.id
+            ).order_by(desc(Notification.created_at)).limit(20)
+        )
+        notifications = notifs_result.scalars().all()
+        notification_list = [
+            {
+                "id": str(n.id),
+                "type": n.type,
+                "title": n.title,
+                "message": n.message,
+                "is_read": n.is_read,
+                "created_at": n.created_at.isoformat() if n.created_at else None,
+            }
+            for n in notifications
+        ]
+    except Exception as e:
+        tb = "".join(traceback.format_exc())
+        logger.error("notification.unread_error", traceback=tb, error=str(e))
+        raise HTTPException(500, "Internal server error")
 
 
 @router.get("/count/unread")
+@limiter.limit("30/minute")
 async def get_unread_notification_count(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -168,13 +182,9 @@ async def get_unread_notification_count(
         )
         count = result.scalar()
         
-        return {
-            "status": "ok",
-            "message": "Unread notification count retrieved",
-            "data": {
-                "unread": count,
-            },
-        }
+        return APIResponse(status="ok", message="Unread notification count retrieved", data={
+            "unread": count,
+        })
     except HTTPException:
         raise
     except Exception as e:

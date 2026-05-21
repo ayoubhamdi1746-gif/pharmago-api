@@ -19,8 +19,8 @@ async def test_lethal_dose_triggers_high_risk_pending(db_session):
         ld50_threshold_mg_per_kg=10.0, suicide_risk_flag=False,
     ))
     db_session.add(Prescription(
-        id=pid, patient_reference_token="abc",
-        items=[{"dpm_code": "LETHAL01", "dose_mg": 500, "quantity": 1}],
+        id=pid, patient_id="abc", pharmacy_id="abc",
+        medications=[{"dpm_code": "LETHAL01", "dose_mg": 500, "quantity": 1}],
     ))
     db_session.add(MedicalRecord(reference_token="abc", patient_weight_kg=70.0))
     await db_session.commit()

@@ -1,6 +1,7 @@
 import uuid, hashlib, traceback, structlog
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request, Query, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 from sqlalchemy import select, func, and_, or_, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db, get_current_user, Role, role_required, UserContext
@@ -14,6 +15,16 @@ from app.logging.cfg import new_ref
 import json
 from app.limiter import limiter
 
+class CreatePrescriptionRequest(BaseModel):
+    pharmacy_id: str
+    medications: list
+    image_url: str | None = None
+    doctor_name: str | None = None
+    doctor_phone: str | None = None
+    doctor_email: str | None = None
+    issue_date: str | None = None
+
+
 router = APIRouter()
 logger = structlog.get_logger()
 
@@ -21,15 +32,14 @@ logger = structlog.get_logger()
 @router.post("")
 @limiter.limit("10/minute")
 async def create_prescription(
+    body: CreatePrescriptionRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
     user: UserContext = Depends(role_required(Role.PATIENT)),
 ):
     try:
-        body = await request.json()
-        pharmacy_id = body.get("pharmacy_id")
-        medications = body.get("medications", [])
-        image_url = body.get("image_url")
+        pharmacy_id = body.pharmacy_id
+        medications = body.medications
         
         if not pharmacy_id:
             raise HTTPException(400, "pharmacy_id is required")
@@ -70,10 +80,11 @@ async def create_prescription(
             raise HTTPException(404, "Patient user not found")
         patient_uuid = patient_user.id
         
-        doctor_name = body.get("doctor_name")
-        doctor_phone = body.get("doctor_phone")
-        doctor_email = body.get("doctor_email")
-        issue_date = body.get("issue_date")
+        image_url = body.image_url
+        doctor_name = body.doctor_name
+        doctor_phone = body.doctor_phone
+        doctor_email = body.doctor_email
+        issue_date = body.issue_date
         
         # Create prescription
         prescription_id = uuid.uuid4()
@@ -95,11 +106,12 @@ async def create_prescription(
         # Create initial event
         event = PrescriptionEvent(
             id=uuid.uuid4(),
-            prescription_id=str(prescription_id),
+            prescription_id=prescription_id,
             event_type="created",
             actor_id=patient_uuid,
             note="Prescription submitted by patient",
         )
+
         db.add(event)
         
         await db.commit()
@@ -107,14 +119,10 @@ async def create_prescription(
         
         logger.info("prescription.created", prescription_id=prescription_id, patient_id=user.id, pharmacy_id=pharmacy_id)
         
-        return {
-            "status": "ok",
-            "message": "Prescription created successfully",
-            "data": {
-                "prescription_id": prescription_id,
-                "status": prescription.status,
-            },
-        }
+        return APIResponse(status="ok", message="Prescription created successfully", data={
+            "prescription_id": str(prescription_id),
+            "status": prescription.status,
+        })
     except HTTPException:
         raise
     except Exception as e:
@@ -181,19 +189,15 @@ async def get_pharmacy_queue(
                 "created_at": prescription.created_at.isoformat() if prescription.created_at else None,
             })
         
-        return {
-            "status": "ok",
-            "message": "Prescription queue retrieved",
-            "data": {
-                "prescriptions": prescriptions,
-                "pagination": {
-                    "total": total,
-                    "page": page,
-                    "limit": limit,
-                    "pages": (total + limit - 1) // limit if limit > 0 else 0,
-                },
+        return APIResponse(status="ok", message="Prescription queue retrieved", data={
+            "prescriptions": prescriptions,
+            "pagination": {
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "pages": (total + limit - 1) // limit if limit > 0 else 0,
             },
-        }
+        })
     except HTTPException:
         raise
     except Exception as e:
@@ -242,14 +246,13 @@ async def verify_prescription(
             status=status.upper(),
             pharmacist_id=user.id,
             verified_at=datetime.utcnow() if status == "verified" else None,
-            dispensed_at=datetime.utcnow() if status == "verified" else None,
         )
         db.add(verification)
         
         # Create event
         event = PrescriptionEvent(
             id=uuid.uuid4(),
-            prescription_id=str(prescription_id),
+            prescription_id=prescription_id,
             event_type=status,
             actor_id=user.id,
             note=note,
@@ -260,14 +263,10 @@ async def verify_prescription(
         
         logger.info("prescription.verified", prescription_id=str(prescription_id), status=status, pharmacist_id=user.id)
         
-        return {
-            "status": "ok",
-            "message": f"Prescription marked as {status}",
-            "data": {
-                "prescription_id": str(prescription_id),
-                "status": status,
-            },
-        }
+        return APIResponse(status="ok", message=f"Prescription marked as {status}", data={
+            "prescription_id": str(prescription_id),
+            "status": status,
+        })
     except HTTPException:
         raise
     except Exception as e:
@@ -329,19 +328,15 @@ async def get_patient_prescriptions(
                 "updated_at": prescription.updated_at.isoformat() if prescription.updated_at else None,
             })
         
-        return {
-            "status": "ok",
-            "message": "Patient prescriptions retrieved",
-            "data": {
-                "prescriptions": prescription_list,
-                "pagination": {
-                    "total": total,
-                    "page": page,
-                    "limit": limit,
-                    "pages": (total + limit - 1) // limit if limit > 0 else 0,
-                },
+        return APIResponse(status="ok", message="Patient prescriptions retrieved", data={
+            "prescriptions": prescription_list,
+            "pagination": {
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "pages": (total + limit - 1) // limit if limit > 0 else 0,
             },
-        }
+        })
     except HTTPException:
         raise
     except Exception as e:

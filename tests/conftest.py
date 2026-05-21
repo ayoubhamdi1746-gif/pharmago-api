@@ -20,7 +20,7 @@ from app.services.auth_service import hash_password
 
 
 TEST_FERNET_KEY = Fernet.generate_key()
-TEST_HMAC_SECRET = "test-hmac-secret-for-pharmago-xx"
+TEST_HMAC_SECRET = "test-hmac-secret-for-pharmago-xx!!"
 TEST_JWT_SECRET = "test-jwt-secret-thats-at-least-32-chars!!"
 
 
@@ -36,6 +36,8 @@ def patch_settings():
     settings.KONNECT_WALLET_ID = "test_konnect_wallet"
     settings.FLOUCI_APP_TOKEN = "test_flouci_token"
     settings.FLOUCI_APP_SECRET = "test_flouci_secret"
+    from app.limiter import limiter
+    limiter.reset()
 
 
 @pytest.fixture(scope="session")

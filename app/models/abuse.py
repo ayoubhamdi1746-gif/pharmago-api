@@ -10,7 +10,7 @@ class AbuseFlag(Base):
     __tablename__ = "abuse_flags"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    prescription_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("prescriptions.id"), nullable=False)
+    prescription_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("prescriptions.id", ondelete="CASCADE"), nullable=False, index=True)
     flag_type: Mapped[str] = mapped_column(String(30), nullable=False)
     flag_reason: Mapped[str] = mapped_column(String(500), nullable=False)
     metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)

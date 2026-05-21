@@ -6,8 +6,9 @@ from app.api.deps import get_db, Role, role_required, UserContext
 from app.schemas.common import APIResponse
 from app.models.prescription import Prescription, PrescriptionVerification
 from app.models.pharmacy import ControlledSubstance, LethalRiskSubstance
-from app.models.delivery import DeliveryTicket
+from app.models.delivery import DeliveryTicket, Delivery
 from app.logging.cfg import new_ref
+from app.limiter import limiter
 
 router = APIRouter()
 logger = structlog.get_logger()
@@ -22,6 +23,7 @@ def _resolve_drug_name(dpm_code: str, controlled_map: dict, lethal_map: dict) ->
 
 
 @router.get("/prescriptions")
+@limiter.limit("30/minute")
 async def patient_prescriptions(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -29,7 +31,7 @@ async def patient_prescriptions(
 ):
     ref = new_ref()
     presc_rows = (await db.execute(
-        select(Prescription).where(Prescription.patient_reference_token == user.id)
+        select(Prescription).where(Prescription.patient_id == user.id)
     )).scalars().all()
 
     presc_ids = [p.id for p in presc_rows]
@@ -48,11 +50,11 @@ async def patient_prescriptions(
         presc = presc_map.get(pv.prescription_id)
         medicament = ""
         dosage = ""
-        if presc and presc.items:
-            first = presc.items[0] if isinstance(presc.items, list) else presc.items
-            code = first.get("dpm_code", "")
+        if presc and presc.medications:
+            first = presc.medications[0] if isinstance(presc.medications, list) else presc.medications
+            code = first.get("dpm_code", first.get("name", ""))
             medicament = _resolve_drug_name(code, controlled_map, lethal_map)
-            dose = first.get("dose_mg", 0)
+            dose = first.get("dose_mg", first.get("dosage", 0))
             unit = first.get("unit", "mg")
             dosage = f"{dose} {unit}" if dose else ""
 
@@ -61,9 +63,7 @@ async def patient_prescriptions(
             "status": pv.status,
             "medicament": medicament,
             "dosage": dosage,
-            "doctor_name": presc.doctor_name if presc else None,
-            "doctor_phone": presc.doctor_phone if presc else None,
-            "patient_reference_token": presc.patient_reference_token if presc else None,
+            "patient_id": presc.patient_id if presc else None,
             "verified_at": pv.verified_at.isoformat() if pv.verified_at else None,
             "dispensed_at": pv.dispensed_at.isoformat() if pv.dispensed_at else None,
             "created_at": pv.created_at.isoformat() if pv.created_at else None,
@@ -73,6 +73,7 @@ async def patient_prescriptions(
 
 
 @router.get("/my/deliveries")
+@limiter.limit("30/minute")
 async def my_deliveries(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -80,13 +81,27 @@ async def my_deliveries(
 ):
     ref = new_ref()
     presc_ids = (await db.execute(
-        select(Prescription.id).where(Prescription.patient_reference_token == user.id)
+        select(Prescription.id).where(Prescription.patient_id == user.id)
     )).scalars().all()
     if not presc_ids:
         return APIResponse(status="ok", message="قائمة توصيلاتك", data={"deliveries": []}, ref=ref)
     tickets = (await db.execute(
         select(DeliveryTicket).where(DeliveryTicket.prescription_id.in_(presc_ids))
     )).scalars().all()
+    deliveries_map = {}
+    if presc_ids:
+        deliveries = (await db.execute(
+            select(Delivery).where(Delivery.prescription_id.in_([str(pid) for pid in presc_ids]))
+        )).scalars().all()
+        for d in deliveries:
+            deliveries_map[str(d.prescription_id)] = str(d.id)
     return APIResponse(status="ok", message="قائمة توصيلاتك", data={
-        "deliveries": [{"ticket_id": str(t.id), "status": "delivered" if t.is_fulfilled else "in_transit"} for t in tickets]
+        "deliveries": [
+            {
+                "ticket_id": str(t.id),
+                "status": "delivered" if t.is_fulfilled else "in_transit",
+                "delivery_id": deliveries_map.get(str(t.prescription_id)),
+            }
+            for t in tickets
+        ]
     }, ref=ref)

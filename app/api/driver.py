@@ -6,12 +6,14 @@ from app.api.deps import get_db, Role, role_required, UserContext
 from app.schemas.common import APIResponse
 from app.models.delivery import DeliveryTicket
 from app.logging.cfg import new_ref
+from app.limiter import limiter
 
 router = APIRouter()
 logger = structlog.get_logger()
 
 
 @router.get("/tickets")
+@limiter.limit("30/minute")
 async def driver_tickets(
     request: Request,
     db: AsyncSession = Depends(get_db),

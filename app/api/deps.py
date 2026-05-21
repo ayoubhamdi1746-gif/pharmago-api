@@ -31,14 +31,14 @@ async def get_db() -> AsyncSession:
 
 
 async def get_current_user(
-    authorization: str = Header(..., alias="Authorization"),
+    authorization: str = Header(None, alias="Authorization"),
 ) -> UserContext:
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(401, "Invalid authorization header format")
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "Invalid or missing authorization header")
     token = authorization[7:]
     payload = decode_token(token)
     if payload is None:
-        logger.warning("auth.invalid_token", token_prefix=token[:10])
+        logger.warning("auth.invalid_token")
         raise HTTPException(401, "Invalid or expired token")
     role_str = payload.get("role", "")
     identity_id = payload.get("identity_id", "")

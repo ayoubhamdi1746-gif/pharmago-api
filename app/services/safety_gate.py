@@ -20,7 +20,7 @@ async def check_safety_gate(
     if not prescription:
         return "PENDING"
 
-    items = prescription.items if isinstance(prescription.items, list) else []
+    items = prescription.medications if isinstance(prescription.medications, list) else []
     for item in items:
         result = await db.execute(
             select(LethalRiskSubstance).where(

@@ -63,17 +63,23 @@ async def check_db() -> bool:
         return False
 
 
+VALID_TABLES = frozenset({"users", "prescriptions", "pharmacy_profiles"})
+VALID_COLUMNS = frozenset({
+    "updated_at", "full_name", "is_verified",
+    "patient_id", "pharmacy_id", "image_url", "medications",
+    "status", "risk_level", "pharmacist_note",
+    "user_id", "pharmacy_name", "city", "address", "phone", "logo_url",
+})
+
+
 async def auto_migrate():
     """Auto-migration: creates missing columns in existing tables"""
     logger.info("db.auto_migration_starting")
     
     COLUMNS_TO_ADD = [
-        # Users table - add missing columns if not exist
         ("users", "updated_at", "TIMESTAMP"),
         ("users", "full_name", "VARCHAR(255)"),
         ("users", "is_verified", "BOOLEAN DEFAULT FALSE"),
-        
-        # Prescriptions table - add new columns
         ("prescriptions", "patient_id", "VARCHAR(36)"),
         ("prescriptions", "pharmacy_id", "VARCHAR(36)"),
         ("prescriptions", "image_url", "TEXT"),
@@ -81,8 +87,6 @@ async def auto_migrate():
         ("prescriptions", "status", "VARCHAR(20) DEFAULT 'pending'"),
         ("prescriptions", "risk_level", "VARCHAR(20) DEFAULT 'low'"),
         ("prescriptions", "pharmacist_note", "TEXT"),
-        
-        # Pharmacy_profiles table
         ("pharmacy_profiles", "user_id", "VARCHAR(36)"),
         ("pharmacy_profiles", "pharmacy_name", "VARCHAR(200)"),
         ("pharmacy_profiles", "city", "VARCHAR(100)"),
@@ -95,14 +99,15 @@ async def auto_migrate():
     try:
         async with get_engine().begin() as conn:
             for table, column, col_type in COLUMNS_TO_ADD:
+                if table not in VALID_TABLES or column not in VALID_COLUMNS:
+                    logger.warning("db.column_skipped_invalid", table=table, column=column)
+                    continue
                 try:
-                    # Check if column exists
-                    result = await conn.execute(text(f"""
-                        SELECT 1 FROM information_schema.columns 
-                        WHERE table_name = '{table}' AND column_name = '{column}'
-                    """))
+                    result = await conn.execute(
+                        text("SELECT 1 FROM information_schema.columns WHERE table_name = :t AND column_name = :c"),
+                        {"t": table, "c": column},
+                    )
                     if not result.scalar():
-                        # Add column
                         await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
                         logger.info("db.column_added", table=table, column=column)
                 except Exception as e:

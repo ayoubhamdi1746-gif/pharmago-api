@@ -1,6 +1,6 @@
-import structlog
-from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
+import structlog, re
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, field_validator
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db, Role, role_required, UserContext
@@ -55,6 +55,7 @@ async def create_demo_request(request: Request, body: DemoRequestCreate, db: Asy
 
 
 @router.get("/demo-requests")
+@limiter.limit("30/minute")
 async def list_demo_requests(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -86,7 +87,9 @@ async def list_demo_requests(
 
 
 @router.patch("/demo-requests/{request_id}/process")
+@limiter.limit("20/minute")
 async def mark_demo_processed(
+    request: Request,
     request_id: str,
     db: AsyncSession = Depends(get_db),
     user: UserContext = Depends(role_required(Role.SUPER_ADMIN, Role.ADMIN)),
@@ -102,6 +105,15 @@ async def mark_demo_processed(
 
 class NewsletterEmail(BaseModel):
     email: str
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", v):
+            raise HTTPException(400, "Invalid email format")
+        if len(v) > 254:
+            raise HTTPException(400, "Email too long")
+        return v.lower()
 
 
 @router.post("/newsletter")

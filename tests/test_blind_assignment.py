@@ -34,7 +34,7 @@ async def test_delivery_without_dispensed_returns_403(db_session):
     """c) Delivery ticket cannot be created without DISPENSED status."""
     ref = make_ref()
     pid = uuid.uuid4()
-    db_session.add(Prescription(id=pid, patient_reference_token="abc", items=[]))
+    db_session.add(Prescription(id=pid, patient_id="abc", pharmacy_id="abc", medications=[]))
     db_session.add(PrescriptionVerification(
         id=uuid.uuid4(), prescription_id=pid,
         status="VERIFIED", verified_at=datetime.utcnow(),
@@ -59,7 +59,7 @@ async def test_expired_driver_assignment_returns_403(db_session):
     ref = make_ref()
     pid = uuid.uuid4()
 
-    db_session.add(Prescription(id=pid, patient_reference_token="abc", items=[]))
+    db_session.add(Prescription(id=pid, patient_id="abc", pharmacy_id="abc", medications=[]))
     db_session.add(PrescriptionVerification(
         id=uuid.uuid4(), prescription_id=pid,
         status="DISPENSED", dispensed_at=datetime.utcnow(),

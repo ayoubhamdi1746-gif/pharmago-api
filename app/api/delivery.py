@@ -1,6 +1,7 @@
-import uuid, hashlib, structlog
+import uuid, hashlib, structlog, secrets, traceback
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
+from pydantic import BaseModel
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db, get_current_user, Role, role_required, UserContext
@@ -9,19 +10,19 @@ from app.models.delivery import Delivery
 from app.models.prescription import Prescription
 from app.models.user import User
 from app.services.auth_service import hash_password
-import random
-import string
+from app.limiter import limiter
 
 router = APIRouter()
 logger = structlog.get_logger()
 
 
 def generate_otp() -> str:
-    """Generate a 6-digit OTP"""
-    return ''.join(random.choices(string.digits, k=6))
+    """Generate a 6-digit OTP using cryptographically secure RNG"""
+    return str(secrets.randbelow(900000) + 100000)
 
 
 @router.post("/assign/{prescription_id}")
+@limiter.limit("10/minute")
 async def assign_delivery(
     prescription_id: uuid.UUID,
     request: Request,
@@ -40,7 +41,7 @@ async def assign_delivery(
         
         # Validate prescription exists and is verified
         prescription_result = await db.execute(
-            select(Prescription).where(Prescription.id == str(prescription_id))
+            select(Prescription).where(Prescription.id == prescription_id)
         )
         prescription = prescription_result.scalar_one_or_none()
         if not prescription:
@@ -70,7 +71,7 @@ async def assign_delivery(
         
         # Check if delivery already exists for this prescription
         existing_delivery = await db.execute(
-            select(Delivery).where(Delivery.prescription_id == str(prescription_id))
+            select(Delivery).where(Delivery.prescription_id == prescription_id)
         )
         if existing_delivery.scalar_one_or_none():
             raise HTTPException(409, "Delivery already assigned for this prescription")
@@ -81,11 +82,11 @@ async def assign_delivery(
         
         # Create delivery
         delivery = Delivery(
-            id=str(uuid.uuid4()),
-            prescription_id=str(prescription_id),
+            id=uuid.uuid4(),
+            prescription_id=prescription_id,
             driver_id=driver_id,
             pharmacy_id=user.id,
-            patient_id=prescription.patient_id,
+            patient_id=str(prescription.patient_id),
             status="assigned",
             otp_code=otp_code,
             otp_expires_at=otp_expires_at,
@@ -98,15 +99,9 @@ async def assign_delivery(
         
         logger.info("delivery.assigned", delivery_id=delivery.id, prescription_id=str(prescription_id), driver_id=driver_id)
         
-        return {
-            "status": "ok",
-            "message": "Delivery assigned successfully",
-            "data": {
-                "delivery_id": delivery.id,
-                "otp_code": otp_code,  # In production, send via SMS
-                "otp_expires_at": otp_expires_at.isoformat(),
-            },
-        }
+        return APIResponse(status="ok", message="Delivery assigned successfully", data={
+            "delivery_id": str(delivery.id),
+        })
     except HTTPException:
         raise
     except Exception as e:
@@ -116,6 +111,7 @@ async def assign_delivery(
 
 
 @router.patch("/{delivery_id}/pickup")
+@limiter.limit("10/minute")
 async def pickup_delivery(
     delivery_id: uuid.UUID,
     request: Request,
@@ -125,7 +121,7 @@ async def pickup_delivery(
     try:
         # Get delivery
         delivery_result = await db.execute(
-            select(Delivery).where(Delivery.id == str(delivery_id))
+            select(Delivery).where(Delivery.id == delivery_id)
         )
         delivery = delivery_result.scalar_one_or_none()
         if not delivery:
@@ -147,15 +143,11 @@ async def pickup_delivery(
         
         logger.info("delivery.picked_up", delivery_id=delivery.id, driver_id=user.id)
         
-        return {
-            "status": "ok",
-            "message": "Delivery picked up successfully",
-            "data": {
-                "delivery_id": delivery.id,
-                "status": delivery.status,
-                "pickup_at": delivery.pickup_at.isoformat() if delivery.pickup_at else None,
-            },
-        }
+        return APIResponse(status="ok", message="Delivery picked up successfully", data={
+            "delivery_id": str(delivery.id),
+            "status": delivery.status,
+            "pickup_at": delivery.pickup_at.isoformat() if delivery.pickup_at else None,
+        })
     except HTTPException:
         raise
     except Exception as e:
@@ -165,6 +157,7 @@ async def pickup_delivery(
 
 
 @router.patch("/{delivery_id}/deliver")
+@limiter.limit("10/minute")
 async def deliver_prescription(
     delivery_id: uuid.UUID,
     request: Request,
@@ -180,7 +173,7 @@ async def deliver_prescription(
         
         # Get delivery
         delivery_result = await db.execute(
-            select(Delivery).where(Delivery.id == str(delivery_id))
+            select(Delivery).where(Delivery.id == delivery_id)
         )
         delivery = delivery_result.scalar_one_or_none()
         if not delivery:
@@ -194,9 +187,18 @@ async def deliver_prescription(
         if delivery.status != "picked_up":
             raise HTTPException(400, f"Cannot deliver delivery with status: {delivery.status}")
         
+        # Check if delivery is locked due to too many failed OTP attempts
+        if delivery.is_locked:
+            raise HTTPException(429, "Delivery locked due to too many failed OTP attempts. Contact pharmacy support.")
+        
         # Validate OTP
         if not delivery.otp_code or delivery.otp_code != otp_code:
-            raise HTTPException(400, "Invalid or expired OTP")
+            locked = delivery.increment_failed_attempts()
+            await db.commit()
+            if locked:
+                logger.warning("delivery.locked", delivery_id=delivery.id, attempts=delivery.failed_otp_attempts)
+                raise HTTPException(429, "Delivery locked due to too many failed OTP attempts. Contact pharmacy support.")
+            raise HTTPException(400, "Invalid OTP")
         
         # Check OTP expiration
         if delivery.otp_expires_at and delivery.otp_expires_at < datetime.utcnow():
@@ -210,15 +212,11 @@ async def deliver_prescription(
         
         logger.info("delivery.delivered", delivery_id=delivery.id, driver_id=user.id)
         
-        return {
-            "status": "ok",
-            "message": "Delivery completed successfully",
-            "data": {
-                "delivery_id": delivery.id,
-                "status": delivery.status,
-                "delivered_at": delivery.delivered_at.isoformat() if delivery.delivered_at else None,
-            },
-        }
+        return APIResponse(status="ok", message="Delivery completed successfully", data={
+            "delivery_id": str(delivery.id),
+            "status": delivery.status,
+            "delivered_at": delivery.delivered_at.isoformat() if delivery.delivered_at else None,
+        })
     except HTTPException:
         raise
     except Exception as e:
@@ -228,6 +226,7 @@ async def deliver_prescription(
 
 
 @router.get("/my")
+@limiter.limit("30/minute")
 async def get_driver_deliveries(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -273,19 +272,15 @@ async def get_driver_deliveries(
                 "delivered_at": delivery.delivered_at.isoformat() if delivery.delivered_at else None,
             })
         
-        return {
-            "status": "ok",
-            "message": "Driver deliveries retrieved",
-            "data": {
-                "deliveries": delivery_list,
-                "pagination": {
-                    "total": total,
-                    "page": page,
-                    "limit": limit,
-                    "pages": (total + limit - 1) // limit if limit > 0 else 0,
-                },
+        return APIResponse(status="ok", message="Driver deliveries retrieved", data={
+            "deliveries": delivery_list,
+            "pagination": {
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "pages": (total + limit - 1) // limit if limit > 0 else 0,
             },
-        }
+        })
     except HTTPException:
         raise
     except Exception as e:
@@ -295,6 +290,7 @@ async def get_driver_deliveries(
 
 
 @router.get("/active")
+@limiter.limit("30/minute")
 async def get_active_deliveries(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -353,19 +349,15 @@ async def get_active_deliveries(
                 "created_at": delivery.created_at.isoformat() if delivery.created_at else None,
             })
         
-        return {
-            "status": "ok",
-            "message": "Active deliveries retrieved",
-            "data": {
-                "deliveries": deliveries,
-                "pagination": {
-                    "total": total,
-                    "page": page,
-                    "limit": limit,
-                    "pages": (total + limit - 1) // limit if limit > 0 else 0,
-                },
+        return APIResponse(status="ok", message="Active deliveries retrieved", data={
+            "deliveries": deliveries,
+            "pagination": {
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "pages": (total + limit - 1) // limit if limit > 0 else 0,
             },
-        }
+        })
     except HTTPException:
         raise
     except Exception as e:

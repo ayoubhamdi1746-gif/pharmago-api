@@ -57,21 +57,16 @@ async def verify_prescription(
         raise ForbiddenException(f"Cannot verify prescription in status {pv.status}", ref)
 
     presc = await db.get(Prescription, prescription_id)
-    controlled = await check_controlled_items(db, presc.items if presc else [])
-    if controlled and pv.pharmacist_id is not None:
-        if pv.pharmacist_id == pharmacist_license_hash:
+    controlled = await check_controlled_items(db, presc.medications if presc else [])
+    if controlled and pv.pharmacist_license_hash is not None:
+        if pv.pharmacist_license_hash == pharmacist_license_hash:
             raise ForbiddenException("Second pharmacist required for controlled substance", ref)
         pv.status = "VERIFIED"
-        pv.pharmacist_id = None
-        pv.pharmacist_license_hash = pharmacist_license_hash
         pv.verified_at = datetime.utcnow()
     elif controlled:
-        pv.pharmacist_id = pharmacist_license_hash
         pv.pharmacist_license_hash = pharmacist_license_hash
     else:
         pv.status = "VERIFIED"
-        pv.pharmacist_id = None
-        pv.pharmacist_license_hash = pharmacist_license_hash
         pv.verified_at = datetime.utcnow()
 
     await db.commit()

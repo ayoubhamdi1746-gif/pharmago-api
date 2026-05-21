@@ -34,6 +34,11 @@ async def billing_register_pharmacy(
     except ValueError:
         return APIResponse(status="error", message="Invalid plan. Choose STARTER, PRO, or ENTERPRISE", ref=ref)
 
+    try:
+        provider = PaymentProvider(body.payment_provider)
+    except ValueError:
+        return APIResponse(status="error", message="Invalid payment provider. Use KONNECT or FLOUCI", ref=ref)
+
     price = PLAN_PRICES[plan_enum]
     limit = PLAN_LIMITS[plan_enum]
     pharmacy_id = uuid.uuid4()
@@ -74,8 +79,6 @@ async def billing_register_pharmacy(
     success_url = f"{BASE_CALLBACK}/billing/success?sub_id={sub.id}"
     fail_url = f"{BASE_CALLBACK}/billing/fail?sub_id={sub.id}"
     notification_url = f"{BASE_CALLBACK}/billing/webhook/{body.payment_provider.lower()}"
-
-    provider = PaymentProvider(body.payment_provider)
     payment_url = None
     provider_payment_id = None
 
@@ -191,7 +194,10 @@ async def billing_subscribe(
     db: AsyncSession = Depends(get_db),
 ):
     ref = new_ref()
-    plan = SubscriptionPlan(body.plan)
+    try:
+        plan = SubscriptionPlan(body.plan)
+    except ValueError:
+        return APIResponse(status="error", message="Invalid plan. Choose STARTER, PRO, or ENTERPRISE", ref=ref)
     price = PLAN_PRICES[plan]
     limit = PLAN_LIMITS[plan]
 
@@ -213,7 +219,11 @@ async def billing_subscribe(
     fail_url = f"{BASE_CALLBACK}/billing/fail?sub_id={sub.id}"
     notification_url = f"{BASE_CALLBACK}/billing/webhook/{body.payment_provider.lower()}"
 
-    provider = PaymentProvider(body.payment_provider)
+    try:
+        provider = PaymentProvider(body.payment_provider)
+    except ValueError:
+        await db.rollback()
+        return APIResponse(status="error", message="Invalid payment provider. Use KONNECT or FLOUCI", ref=ref)
     payment_url = None
     provider_payment_id = None
 
@@ -301,6 +311,10 @@ async def konnect_webhook(
     if not txn:
         return APIResponse(status="error", message="Transaction not found", ref=ref)
 
+    if txn.status == PaymentStatus.COMPLETED:
+        logger.info("konnect_webhook_duplicate", ref=ref, pay_id=pay_id)
+        return APIResponse(status="ok", message="Already confirmed", ref=ref)
+
     txn.status = PaymentStatus.COMPLETED
     txn.completed_at = datetime.utcnow()
     if txn.subscription_id:
@@ -345,6 +359,10 @@ async def flouci_webhook(
     )).scalar_one_or_none()
     if not txn:
         return APIResponse(status="error", message="Transaction not found", ref=ref)
+
+    if txn.status == PaymentStatus.COMPLETED:
+        logger.info("flouci_webhook_duplicate", ref=ref, payment_id=payment_id)
+        return APIResponse(status="ok", message="Already confirmed", ref=ref)
 
     txn.status = PaymentStatus.COMPLETED
     txn.completed_at = datetime.utcnow()

@@ -17,10 +17,24 @@ class Settings(BaseSettings):
     FULFILL_RATE_LIMIT: str = "5/minute"
     FRONTEND_URL: str = "http://localhost:3000"
     DEV_MODE: bool = False
+    REDIS_URL: str = ""
+    SENTRY_DSN: str = ""
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+    TWILIO_ACCOUNT_SID: str = ""
+    TWILIO_AUTH_TOKEN: str = ""
+    TWILIO_PHONE_NUMBER: str = ""
+    SENDGRID_API_KEY: str = ""
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    DEFAULT_LOCALE: str = "en"
     KONNECT_API_KEY: str = ""
     KONNECT_WALLET_ID: str = ""
     FLOUCI_APP_TOKEN: str = ""
     FLOUCI_APP_SECRET: str = ""
+    SETUP_KEY: str = ""
 
     class Config:
         env_file = ".env"

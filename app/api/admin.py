@@ -5,7 +5,12 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db, Role, role_required, UserContext
 from app.limiter import limiter
+from pydantic import BaseModel
 from app.schemas.common import APIResponse, SubscriptionCreate, AdminCreateDriverRequest
+
+
+class UpdatePharmacyRequest(BaseModel):
+    is_active: bool | None = None
 from app.models.delivery import VettedDriver, DeliveryTicket
 from app.models.abuse import AbuseFlag
 from app.models.billing import PharmacySubscription, DeliveryCommission, DriverPayout, DriverPayoutStatus, SubscriptionPlan, PLAN_PRICES, PLAN_LIMITS
@@ -17,6 +22,7 @@ logger = structlog.get_logger()
 
 
 @router.get("/drivers")
+@limiter.limit("30/minute")
 async def admin_list_drivers(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -41,6 +47,7 @@ async def admin_list_drivers(
 
 
 @router.get("/stats")
+@limiter.limit("30/minute")
 async def admin_stats(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -97,6 +104,7 @@ async def admin_create_driver(
 
 
 @router.patch("/drivers/{token_hash}/suspend")
+@limiter.limit("10/minute")
 async def admin_suspend_driver(
     token_hash: str, request: Request,
     db: AsyncSession = Depends(get_db),
@@ -148,6 +156,7 @@ async def admin_create_subscription(
 
 
 @router.get("/subscriptions")
+@limiter.limit("30/minute")
 async def admin_list_subscriptions(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -177,6 +186,7 @@ async def admin_list_subscriptions(
 
 
 @router.get("/payouts")
+@limiter.limit("30/minute")
 async def admin_list_payouts(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -236,6 +246,7 @@ async def admin_mark_payout_paid(
 
 
 @router.get("/revenue")
+@limiter.limit("30/minute")
 async def admin_revenue(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -341,6 +352,7 @@ async def admin_revenue(
 
 
 @router.get("/pharmacies")
+@limiter.limit("30/minute")
 async def admin_list_pharmacies(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -382,8 +394,9 @@ async def admin_list_pharmacies(
 
 
 @router.patch("/pharmacies/{pharmacy_id}")
+@limiter.limit("10/minute")
 async def admin_update_pharmacy(
-    pharmacy_id: uuid.UUID, request: Request,
+    pharmacy_id: uuid.UUID, body: UpdatePharmacyRequest, request: Request,
     db: AsyncSession = Depends(get_db),
     user: UserContext = Depends(role_required(Role.ADMIN, Role.SUPER_ADMIN)),
 ):
@@ -393,9 +406,8 @@ async def admin_update_pharmacy(
     )).scalar_one_or_none()
     if not sub:
         raise NotFoundException("Pharmacie non trouvée", ref)
-    body = await request.json()
-    if "is_active" in body:
-        sub.is_active = body["is_active"]
+    if body.is_active is not None:
+        sub.is_active = body.is_active
     await db.commit()
     return APIResponse(status="ok", message="Pharmacie mise à jour", data={
         "id": str(sub.id), "is_active": sub.is_active,
@@ -403,6 +415,7 @@ async def admin_update_pharmacy(
 
 
 @router.patch("/pharmacies/{pharmacy_id}/suspend")
+@limiter.limit("10/minute")
 async def admin_suspend_pharmacy(
     pharmacy_id: uuid.UUID, request: Request,
     db: AsyncSession = Depends(get_db),

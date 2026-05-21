@@ -1,6 +1,7 @@
 from typing import Any, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 import uuid
+from app.services.password_policy import validate_password, PasswordError
 
 
 class APIResponse(BaseModel):
@@ -76,6 +77,13 @@ class RegisterPharmacyRequest(BaseModel):
     plan: str
     payment_provider: str  # "KONNECT" | "FLOUCI"
 
+    @field_validator("password")
+    @classmethod
+    def password_strong(cls, v: str) -> str:
+        if v:
+            validate_password(v)
+        return v
+
 
 class AdminCreateDriverRequest(BaseModel):
     driver_id: str = ""
@@ -124,12 +132,24 @@ class PharmacyRegisterRequest(BaseModel):
     password: str
     plan: str
 
+    @field_validator("password")
+    @classmethod
+    def password_strong(cls, v: str) -> str:
+        validate_password(v)
+        return v
+
 
 class PatientRegisterRequest(BaseModel):
     name: str
     email: str
     password: str
     phone: str
+
+    @field_validator("password")
+    @classmethod
+    def password_strong(cls, v: str) -> str:
+        validate_password(v)
+        return v
 
 
 class DriverRegisterRequest(BaseModel):
@@ -138,3 +158,9 @@ class DriverRegisterRequest(BaseModel):
     password: str
     phone: str
     pharmacy_id: str
+
+    @field_validator("password")
+    @classmethod
+    def password_strong(cls, v: str) -> str:
+        validate_password(v)
+        return v

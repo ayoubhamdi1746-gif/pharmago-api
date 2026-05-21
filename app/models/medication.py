@@ -10,8 +10,8 @@ class PharmacyMedication(Base):
     __tablename__ = "pharmacy_medications"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    pharmacy_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("pharmacy_subscriptions.id"), nullable=False)
-    medication_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    pharmacy_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    medication_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     dosage: Mapped[str] = mapped_column(String(100), nullable=False)
     stock_quantity: Mapped[int] = mapped_column(Integer, default=0)
     is_available: Mapped[bool] = mapped_column(Boolean, default=True)

@@ -9,6 +9,7 @@ from app.models.pharmacy import ControlledSubstance, LethalRiskSubstance
 from app.exceptions.handlers import NotFoundException
 from app.logging.cfg import new_ref
 from app.config import settings
+from app.limiter import limiter
 
 router = APIRouter()
 logger = structlog.get_logger()
@@ -23,6 +24,7 @@ def _resolve_drug_name(dpm_code: str, controlled_map: dict, lethal_map: dict) ->
 
 
 @router.get("/confirmations")
+@limiter.limit("20/minute")
 async def doctor_confirmations(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -51,11 +53,11 @@ async def doctor_confirmations(
         presc = presc_map.get(r.prescription_id)
         medicament = ""
         dosage = ""
-        if presc and presc.items:
-            first = presc.items[0] if isinstance(presc.items, list) else presc.items
-            code = first.get("dpm_code", "")
+        if presc and presc.medications:
+            first = presc.medications[0] if isinstance(presc.medications, list) else presc.medications
+            code = first.get("dpm_code", first.get("name", ""))
             medicament = _resolve_drug_name(code, controlled_map, lethal_map)
-            dose = first.get("dose_mg", 0)
+            dose = first.get("dose_mg", first.get("dosage", 0))
             unit = first.get("unit", "mg")
             dosage = f"{dose} {unit}" if dose else ""
 
@@ -64,20 +66,21 @@ async def doctor_confirmations(
             "prescription_id": str(r.prescription_id),
             "medicament": medicament,
             "dosage": dosage,
-            "doctor_name": presc.doctor_name if presc else None,
             "doctor_license_hash": r.doctor_license_hash,
             "status": r.status,
             "expires_at": r.expires_at.isoformat(),
             "requested_at": r.requested_at.isoformat() if r.requested_at else None,
-            "patient_reference_token": presc.patient_reference_token if presc else None,
+            "patient_id": presc.patient_id if presc else None,
         })
 
     return APIResponse(status="ok", message="طلبات التأكيد", data={"confirmations": items}, ref=ref)
 
 
 @router.post("/confirm/{prescription_id}")
+@limiter.limit("10/minute")
 async def doctor_confirm_prescription(
     prescription_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: UserContext = Depends(role_required(Role.DOCTOR)),
 ):

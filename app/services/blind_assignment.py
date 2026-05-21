@@ -4,8 +4,8 @@ from decimal import Decimal
 from cryptography.fernet import Fernet
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.models.delivery import DeliveryTicket, VettedDriver
-from app.models.prescription import PrescriptionVerification
+from app.models.delivery import Delivery, DeliveryTicket, VettedDriver
+from app.models.prescription import PrescriptionVerification, Prescription
 from app.models.billing import PharmacySubscription, DeliveryCommission, DriverPayout, DriverPayoutStatus, SubscriptionPlan, CommissionStatus
 from app.exceptions.handlers import ForbiddenException, NotFoundException, ConflictException
 from app.config import settings
@@ -53,13 +53,17 @@ class BlindAssignmentEngine:
             raise ForbiddenException("No eligible driver available", ref)
         driver = random.choice(drivers)
 
+        presc = await self.db.get(Prescription, prescription_id)
+        pharmacy_id = presc.pharmacy_id if presc else driver.issuing_pharmacy_id
         sub = (await self.db.execute(
             select(PharmacySubscription).where(
-                PharmacySubscription.pharmacy_id == driver.issuing_pharmacy_id,
+                PharmacySubscription.pharmacy_id == pharmacy_id,
                 PharmacySubscription.is_active == True,
             )
         )).scalar_one_or_none()
-        if sub and sub.plan == SubscriptionPlan.STARTER:
+        if not sub:
+            raise ForbiddenException("Pharmacy subscription not found", ref)
+        if sub.plan == SubscriptionPlan.STARTER:
             limit = PLAN_DELIVERY_LIMITS[SubscriptionPlan.STARTER]
             if sub.delivery_count_this_month >= limit:
                 raise ForbiddenException(
@@ -92,8 +96,10 @@ class BlindAssignmentEngine:
             raise ForbiddenException("Delivery ticket expired", ref)
         if ticket.locked_at is not None:
             raise ForbiddenException("Delivery ticket is locked due to too many failed attempts", ref)
-        if ticket.driver_token_hash != driver_token:
-            logger.warning("Driver token mismatch", ref=ref, ticket=str(ticket_id), expected=ticket.driver_token_hash, got=driver_token)
+        import hashlib
+        driver_token_hashed = hashlib.sha256(driver_token.encode()).hexdigest() if len(driver_token) != 64 else driver_token
+        if ticket.driver_token_hash != driver_token_hashed:
+            logger.warning("Driver token mismatch", ref=ref, ticket=str(ticket_id))
             raise ForbiddenException("This ticket is not assigned to you", ref)
         if not verify_otp(otp, ticket.otp_hash):
             ticket.failed_otp_attempts = (ticket.failed_otp_attempts or 0) + 1
@@ -120,15 +126,15 @@ class BlindAssignmentEngine:
         )
         self.db.add(payout)
 
-        driver = (await self.db.execute(
-            select(VettedDriver).where(
-                VettedDriver.driver_token_hash == ticket.driver_token_hash
+        ticket_delivery = (await self.db.execute(
+            select(Delivery).where(
+                Delivery.prescription_id == ticket.prescription_id
             )
         )).scalar_one_or_none()
-        if driver:
+        if ticket_delivery:
             sub = (await self.db.execute(
                 select(PharmacySubscription).where(
-                    PharmacySubscription.pharmacy_id == driver.issuing_pharmacy_id,
+                    PharmacySubscription.pharmacy_id == ticket_delivery.pharmacy_id,
                     PharmacySubscription.is_active == True,
                 )
             )).scalar_one_or_none()

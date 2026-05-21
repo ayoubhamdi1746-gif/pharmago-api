@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from passlib.context import CryptContext
 from app.api.deps import get_db
-from app.services.auth_service import hash_password
+from app.services.auth_service import hash_password, create_access_token
 from app.schemas.common import APIResponse
 from app.models.user import User
 from app.logging.cfg import new_ref

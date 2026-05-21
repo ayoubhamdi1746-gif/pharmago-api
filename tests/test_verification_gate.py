@@ -18,7 +18,7 @@ async def test_driver_cannot_read_prescription(db_session):
     pid = uuid.uuid4()
     driver_token = hashlib.sha256(b"driver_token").hexdigest()
 
-    db_session.add(Prescription(id=pid, patient_reference_token="abc", items=[]))
+    db_session.add(Prescription(id=pid, patient_id="abc", pharmacy_id="abc", medications=[]))
     db_session.add(PrescriptionVerification(prescription_id=pid, status="PENDING"))
     await db_session.commit()
 
@@ -31,7 +31,7 @@ async def test_modify_after_verified_returns_403(db_session):
     """d) Modifying prescription after VERIFIED is forbidden."""
     ref = make_ref()
     pid = uuid.uuid4()
-    db_session.add(Prescription(id=pid, patient_reference_token="abc", items=[]))
+    db_session.add(Prescription(id=pid, patient_id="abc", pharmacy_id="abc", medications=[]))
     db_session.add(PrescriptionVerification(
         id=uuid.uuid4(), prescription_id=pid,
         status="VERIFIED", verified_at=datetime.utcnow(),
@@ -53,7 +53,7 @@ async def test_pharmacist_approves_high_risk_without_token_returns_403(db_sessio
         pharmacist_license_hash=ph_hash,
         full_name_encrypted=b"encrypted_name", is_active=True,
     ))
-    db_session.add(Prescription(id=pid, patient_reference_token="abc", items=[]))
+    db_session.add(Prescription(id=pid, patient_id="abc", pharmacy_id="abc", medications=[]))
     db_session.add(PrescriptionVerification(
         id=uuid.uuid4(), prescription_id=pid, status="HIGH_RISK_PENDING",
     ))
@@ -75,7 +75,7 @@ async def test_expired_doctor_token_returns_to_high_risk_pending(db_session):
     db_session.add(LicensedPharmacist(
         pharmacist_license_hash=ph_hash, full_name_encrypted=b"enc", is_active=True,
     ))
-    db_session.add(Prescription(id=pid, patient_reference_token="abc", items=[]))
+    db_session.add(Prescription(id=pid, patient_id="abc", pharmacy_id="abc", medications=[]))
     db_session.add(PrescriptionVerification(
         id=uuid.uuid4(), prescription_id=pid, status="HIGH_RISK_PENDING",
     ))

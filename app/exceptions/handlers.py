@@ -48,7 +48,10 @@ FRENCH_MESSAGES = {
 }
 
 async def http_exception_handler(request: Request, exc: HTTPException):
-    message = exc.detail if exc.detail and exc.detail not in FRENCH_MESSAGES else FRENCH_MESSAGES.get(exc.status_code, str(exc.detail))
+    if isinstance(exc.detail, str) and exc.detail not in FRENCH_MESSAGES:
+        message = exc.detail
+    else:
+        message = FRENCH_MESSAGES.get(exc.status_code, str(exc.detail))
     logger.warning("http_exception", status=exc.status_code, path=request.url.path, detail=message)
     return JSONResponse(
         status_code=exc.status_code,
