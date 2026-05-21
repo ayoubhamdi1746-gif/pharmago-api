@@ -14,6 +14,7 @@ from app.schemas.common import APIResponse, LoginRequest, TokenResponse, Refresh
 from app.models.user import User
 from app.models.billing import PharmacySubscription, SubscriptionPlan, PLAN_PRICES, PLAN_LIMITS
 from app.models.pharmacy_profile import PharmacyProfile
+from app.models.password_reset import PasswordResetOTP
 from app.services.auth_service import (
     verify_password, create_access_token, create_refresh_token, decode_token, hash_password,
     revoke_token,
@@ -37,8 +38,6 @@ class RegisterPharmacyRequest(BaseModel):
 router = APIRouter()
 logger = structlog.get_logger()
 
-# In-memory store for password reset OTPs: email -> (otp_hash, expires_at)
-_reset_otp_store: dict[str, tuple[str, datetime]] = {}
 RESET_OTP_TTL_MINUTES = 15
 
 
@@ -411,20 +410,28 @@ async def forgot_password(body: ForgotPasswordRequest, request: Request, db: Asy
     ref = new_ref()
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
-    # Always return ok to prevent email enumeration
     if not user:
         logger.info("auth.forgot_password_email_not_found", email=body.email, ref=ref)
         return APIResponse(status="ok", message="If this email exists, an OTP has been sent", ref=ref)
 
     from app.services.otp_service import generate_otp
-    from app.services.notification_service import send_otp_sms
     otp, otp_hash = generate_otp()
     expires_at = datetime.utcnow() + timedelta(minutes=RESET_OTP_TTL_MINUTES)
-    _reset_otp_store[body.email] = (otp_hash, expires_at)
 
-    # Try to send via SMS if user has phone; in dev mode, log the OTP
-    if user.city and not request.app.state.dev_mode:
-        pass  # Would send SMS/email in production
+    otp_entry = await db.execute(
+        select(PasswordResetOTP).where(PasswordResetOTP.email == body.email)
+    )
+    existing = otp_entry.scalar_one_or_none()
+    if existing:
+        await db.delete(existing)
+
+    db.add(PasswordResetOTP(
+        email=body.email,
+        otp_hash=otp_hash,
+        expires_at=expires_at,
+    ))
+    await db.commit()
+
     logger.info("auth.forgot_password_otp_generated", email=body.email, otp=otp, ref=ref)
     return APIResponse(status="ok", message="If this email exists, an OTP has been sent", ref=ref)
 
@@ -433,27 +440,32 @@ async def forgot_password(body: ForgotPasswordRequest, request: Request, db: Asy
 @limiter.limit("5/15minute")
 async def reset_password(body: ResetPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)):
     ref = new_ref()
-    entry = _reset_otp_store.get(body.email)
+    result = await db.execute(
+        select(PasswordResetOTP).where(
+            PasswordResetOTP.email == body.email,
+            PasswordResetOTP.used == False,
+        )
+    )
+    entry = result.scalar_one_or_none()
     if not entry:
         raise HTTPException(400, "No OTP requested for this email or OTP expired")
 
-    otp_hash, expires_at = entry
-    if datetime.utcnow() > expires_at:
-        _reset_otp_store.pop(body.email, None)
+    if datetime.utcnow() > entry.expires_at:
+        entry.used = True
+        await db.commit()
         raise HTTPException(400, "OTP has expired")
 
     from app.services.otp_service import verify_otp
-    if not verify_otp(body.otp, otp_hash):
+    if not verify_otp(body.otp, entry.otp_hash):
         raise HTTPException(400, "Invalid OTP")
 
-    result = await db.execute(select(User).where(User.email == body.email))
-    user = result.scalar_one_or_none()
+    user_result = await db.execute(select(User).where(User.email == body.email))
+    user = user_result.scalar_one_or_none()
     if not user:
-        _reset_otp_store.pop(body.email, None)
         raise HTTPException(400, "User not found")
 
     user.hashed_password = hash_password(body.new_password)
+    entry.used = True
     await db.commit()
-    _reset_otp_store.pop(body.email, None)
     logger.info("auth.password_reset_success", email=body.email, ref=ref)
     return APIResponse(status="ok", message="Password reset successfully", ref=ref)

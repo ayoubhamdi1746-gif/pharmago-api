@@ -16,6 +16,7 @@ from app.models.abuse import AbuseFlag
 from app.models.user import User
 from app.models.billing import PharmacySubscription, DeliveryCommission, SubscriptionPlan
 from app.models.payment import PaymentTransaction
+from app.models.password_reset import PasswordResetOTP
 from app.services.auth_service import hash_password
 
 

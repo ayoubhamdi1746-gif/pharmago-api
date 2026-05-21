@@ -259,6 +259,12 @@ async def verify_prescription(
         )
         db.add(event)
         
+        from app.services.audit_service import log_audit
+        await log_audit(
+            db, action=f"prescription.{status}", actor=user, request=request,
+            resource_type="prescription", resource_id=str(prescription_id),
+            details={"note": note},
+        )
         await db.commit()
         
         logger.info("prescription.verified", prescription_id=str(prescription_id), status=status, pharmacist_id=user.id)

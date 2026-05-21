@@ -314,14 +314,14 @@ async def test_forgot_password_known_email_returns_ok(client: AsyncClient, db_se
 async def test_reset_password_success(client: AsyncClient, db_session):
     from app.services.auth_service import hash_password, verify_password
     from app.services.otp_service import generate_otp
+    from app.models.password_reset import PasswordResetOTP
     from datetime import datetime, timedelta
     h = hashlib.sha256(b"resetpw-test").hexdigest()
     db_session.add(User(id=h, role="patient", username="resetpw-test", email="resetpw@test.com", identity_id=h, hashed_password=hash_password("OldP@ss1"), is_active=True))
-    await db_session.commit()
-    # Inject OTP directly into store
+    await db_session.flush()
     otp, otp_hash = generate_otp()
-    from app.api.auth import _reset_otp_store, RESET_OTP_TTL_MINUTES
-    _reset_otp_store["resetpw@test.com"] = (otp_hash, datetime.utcnow() + timedelta(minutes=RESET_OTP_TTL_MINUTES))
+    db_session.add(PasswordResetOTP(email="resetpw@test.com", otp_hash=otp_hash, expires_at=datetime.utcnow() + timedelta(minutes=15)))
+    await db_session.commit()
     resp = await client.post("/auth/reset-password", json={"email": "resetpw@test.com", "otp": otp, "new_password": "NewP@ss!2024X"})
     assert resp.status_code == 200, f"got {resp.status_code}: {resp.text}"
     data = resp.json()
@@ -331,13 +331,14 @@ async def test_reset_password_success(client: AsyncClient, db_session):
 async def test_reset_password_wrong_otp_returns_400(client: AsyncClient, db_session):
     from app.services.auth_service import hash_password
     from app.services.otp_service import generate_otp
+    from app.models.password_reset import PasswordResetOTP
     from datetime import datetime, timedelta
     h = hashlib.sha256(b"resetpw-wrong").hexdigest()
     db_session.add(User(id=h, role="patient", username="resetpw-wrong", email="resetpw-wrong@test.com", identity_id=h, hashed_password=hash_password("OldP@ss1"), is_active=True))
-    await db_session.commit()
+    await db_session.flush()
     otp, otp_hash = generate_otp()
-    from app.api.auth import _reset_otp_store, RESET_OTP_TTL_MINUTES
-    _reset_otp_store["resetpw-wrong@test.com"] = (otp_hash, datetime.utcnow() + timedelta(minutes=RESET_OTP_TTL_MINUTES))
+    db_session.add(PasswordResetOTP(email="resetpw-wrong@test.com", otp_hash=otp_hash, expires_at=datetime.utcnow() + timedelta(minutes=15)))
+    await db_session.commit()
     resp = await client.post("/auth/reset-password", json={"email": "resetpw-wrong@test.com", "otp": "000000", "new_password": "NewP@ss!2024X"})
     assert resp.status_code == 400
     data = resp.json()
@@ -354,14 +355,14 @@ async def test_reset_password_no_otp_requested_returns_400(client: AsyncClient):
 async def test_reset_password_expired_otp_returns_400(client: AsyncClient, db_session):
     from app.services.auth_service import hash_password
     from app.services.otp_service import generate_otp
+    from app.models.password_reset import PasswordResetOTP
     from datetime import datetime, timedelta
     h = hashlib.sha256(b"resetpw-expired").hexdigest()
     db_session.add(User(id=h, role="patient", username="resetpw-expired", email="resetpw-expired@test.com", identity_id=h, hashed_password=hash_password("OldP@ss1"), is_active=True))
-    await db_session.commit()
+    await db_session.flush()
     otp, otp_hash = generate_otp()
-    expired = datetime.utcnow() - timedelta(minutes=1)
-    from app.api.auth import _reset_otp_store
-    _reset_otp_store["resetpw-expired@test.com"] = (otp_hash, expired)
+    db_session.add(PasswordResetOTP(email="resetpw-expired@test.com", otp_hash=otp_hash, expires_at=datetime.utcnow() - timedelta(minutes=1)))
+    await db_session.commit()
     resp = await client.post("/auth/reset-password", json={"email": "resetpw-expired@test.com", "otp": otp, "new_password": "NewP@ss!2024X"})
     assert resp.status_code == 400
     data = resp.json()

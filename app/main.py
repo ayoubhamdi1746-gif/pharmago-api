@@ -123,7 +123,10 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     async def startup():
         try:
-            from app.database import auto_migrate, get_engine
+            from app.database import auto_migrate, get_engine, Base
+            engine = get_engine()
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
             await auto_migrate()
             logger.info("app.startup_complete")
         except Exception as e:

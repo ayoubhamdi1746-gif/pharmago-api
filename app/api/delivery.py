@@ -94,6 +94,12 @@ async def assign_delivery(
         )
         db.add(delivery)
         
+        from app.services.audit_service import log_audit
+        await log_audit(
+            db, action="delivery.assigned", actor=user, request=request,
+            resource_type="delivery", resource_id=str(delivery.id),
+            details={"prescription_id": str(prescription_id), "driver_id": driver_id},
+        )
         await db.commit()
         await db.refresh(delivery)
         
@@ -139,6 +145,12 @@ async def pickup_delivery(
         delivery.status = "picked_up"
         delivery.pickup_at = datetime.utcnow()
         
+        from app.services.audit_service import log_audit
+        await log_audit(
+            db, action="delivery.picked_up", actor=user, request=request,
+            resource_type="delivery", resource_id=str(delivery.id),
+            details={"prescription_id": str(delivery.prescription_id)},
+        )
         await db.commit()
         
         logger.info("delivery.picked_up", delivery_id=delivery.id, driver_id=user.id)
@@ -208,6 +220,12 @@ async def deliver_prescription(
         delivery.status = "delivered"
         delivery.delivered_at = datetime.utcnow()
         
+        from app.services.audit_service import log_audit
+        await log_audit(
+            db, action="delivery.delivered", actor=user, request=request,
+            resource_type="delivery", resource_id=str(delivery.id),
+            details={"prescription_id": str(delivery.prescription_id), "otp_attempts": delivery.failed_otp_attempts},
+        )
         await db.commit()
         
         logger.info("delivery.delivered", delivery_id=delivery.id, driver_id=user.id)

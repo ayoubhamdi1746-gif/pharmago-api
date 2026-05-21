@@ -131,7 +131,6 @@ async def billing_register_pharmacy(
         status=PaymentStatus.PENDING,
     )
     db.add(txn)
-    await db.commit()
 
     from app.models.notification import Notification
     from app.models.pharmacy import LicensedPharmacist
@@ -178,6 +177,14 @@ async def billing_register_pharmacy(
         await send_email(body.email, welcome_subject, welcome_body)
     except Exception:
         logger.warning("welcome_email_skipped", username=username)
+
+    from app.services.audit_service import log_audit
+    await log_audit(
+        db, action="billing.pharmacy_registered", actor=None, request=request,
+        resource_type="pharmacy", resource_id=str(pharmacy_id),
+        details={"plan": body.plan, "pharmacy_name": body.pharmacy_name, "provider": body.payment_provider},
+    )
+    await db.commit()
 
     return APIResponse(status="ok", message="Inscription créée, en attente de paiement", data={
         "payment_url": payment_url,
