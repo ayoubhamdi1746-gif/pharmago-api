@@ -14,7 +14,10 @@ from app.models.user import User
 from app.logging.cfg import new_ref
 from app.config import settings
 from app.limiter import limiter
-from app.models.billing import PharmacySubscription, SubscriptionPlan
+from app.models.prescription import Prescription, PrescriptionVerification, DoctorConfirmationRequest
+from app.models.patient import MedicalRecord
+from app.models.delivery import DeliveryTicket, DeliveryCommission, DriverPayout, VettedDriver
+from app.models.billing import PharmacySubscription, SubscriptionPlan, CommissionStatus, DriverPayoutStatus, PLAN_PRICES
 
 router = APIRouter()
 logger = structlog.get_logger()
@@ -117,11 +120,9 @@ async def dev_seed_pharmacist_queue(
     results = []
     for demo in DEMO_PRESCRIPTIONS:
         presc = Prescription(
-            patient_reference_token=DEMO_PATIENT_TOKEN,
-            doctor_name="Dr. Ahmed Ben Ali",
-            doctor_phone="+21698123456",
-            doctor_email="dr.bensalem@example.com",
-            items=[{
+            patient_id=DEMO_PATIENT_TOKEN,
+            pharmacy_id=DEMO_PATIENT_TOKEN,
+            medications=[{
                 "dpm_code": demo["dpm_code"],
                 "dose_mg": demo["dose_mg"],
                 "quantity": demo["quantity"],
@@ -181,15 +182,13 @@ async def dev_seed_doctor(
 
     for demo in DEMO_PRESCRIPTIONS:
         presc = Prescription(
-            patient_reference_token=DEMO_PATIENT_TOKEN,
-            items=[{
+            patient_id=DEMO_PATIENT_TOKEN,
+            pharmacy_id=DEMO_PATIENT_TOKEN,
+            medications=[{
                 "dpm_code": demo["dpm_code"],
                 "dose_mg": demo["dose_mg"],
                 "quantity": demo["quantity"],
             }],
-            doctor_name="Dr. Ahmed Ben Ali",
-            doctor_phone="+21698123456",
-            doctor_email="dr.bensali@example.com",
         )
         db.add(presc)
         await db.commit()
@@ -230,9 +229,9 @@ async def dev_seed_driver(
     pv = existing_pv.scalars().first()
     if not pv:
         presc = Prescription(
-            patient_reference_token=DEMO_PATIENT_TOKEN,
-            items=[{"dpm_code": "SAFE01", "dose_mg": 500, "quantity": 1}],
-            doctor_name="Dr. Ahmed Ben Salem",
+            patient_id=DEMO_PATIENT_TOKEN,
+            pharmacy_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+            medications=[{"dpm_code": "SAFE01", "dose_mg": 500, "quantity": 1}],
         )
         db.add(presc)
         await db.commit()
@@ -356,11 +355,9 @@ async def dev_seed_patient(
     results = []
     for i, demo in enumerate(DEMO_PRESCRIPTIONS):
         presc = Prescription(
-            patient_reference_token=DEMO_PATIENT_TOKEN,
-            items=[{"dpm_code": demo["dpm_code"], "dose_mg": demo["dose_mg"], "quantity": demo["quantity"]}],
-            doctor_name="Dr. Ahmed Ben Ali",
-            doctor_phone="+21698123456",
-            doctor_email="dr.bensalem@example.com",
+            patient_id=DEMO_PATIENT_TOKEN,
+            pharmacy_id=DEMO_PATIENT_TOKEN,
+            medications=[{"dpm_code": demo["dpm_code"], "dose_mg": demo["dose_mg"], "quantity": demo["quantity"]}],
         )
         db.add(presc)
         await db.commit()
@@ -413,30 +410,45 @@ async def dev_seed_users(
         if existing.scalar_one_or_none():
             created.append({"username": username, "status": "already_exists"})
             continue
+        kwargs = {}
+        if role == "pharmacist":
+            kwargs["pharmacist_license_hash"] = DEMO_PHARMACIST_HASH
         db.add(User(
             username=username,
             role=role,
             identity_id=identity_id,
             hashed_password=hash_password("demo"),
             is_active=True,
+            **kwargs,
         ))
         created.append({"username": username, "status": "created"})
 
+    from app.models.pharmacy import LicensedPharmacist
+    if "pharmacist" in [u[0] for u in users_data]:
+        existing_lic = await db.execute(
+            select(LicensedPharmacist).where(LicensedPharmacist.pharmacist_license_hash == DEMO_PHARMACIST_HASH)
+        )
+        if not existing_lic.scalar_one_or_none():
+            db.add(LicensedPharmacist(
+                pharmacist_license_hash=DEMO_PHARMACIST_HASH,
+                full_name_encrypted=b"Pharmacist Demo",
+                is_active=True,
+            ))
     await db.commit()
     logger.info("Users seeded", ref=ref, count=len(created))
     return APIResponse(status="ok", message="Utilisateurs de démo créés", data={"users": created}, ref=ref)
 
 
 class SetupFoundersBody(BaseModel):
-    ayoub_password: str = "youpipo19"
-    eya_password: str = "israbestie4life"
+    ayoub_password: str
+    eya_password: str
 
 
 @router.post("/setup-founders")
 @limiter.limit("1/minute")
 async def dev_setup_founders(request: Request, body: SetupFoundersBody = Body(...), db: AsyncSession = Depends(get_db)):
     secret = request.headers.get("X-Setup-Key")
-    if secret != "PHARMAGO_SETUP_2026":
+    if not settings.SETUP_KEY or secret != settings.SETUP_KEY:
         raise HTTPException(403, "Forbidden")
     ref = new_ref()
 
@@ -464,7 +476,7 @@ async def dev_setup_founders(request: Request, body: SetupFoundersBody = Body(..
                 email=f["email"],
                 role=f["role"],
                 identity_id=identity_id,
-                hashed_password=_hash(f["password"]),
+                hashed_password=hash_password(f["password"]),
                 is_active=True,
             ))
             results.append({"username": f["username"], "status": "created"})
@@ -490,7 +502,7 @@ async def dev_setup_founders(request: Request, body: SetupFoundersBody = Body(..
 @router.get("/check-hash")
 @limiter.limit("3/minute")
 async def dev_check_hash(request: Request, username: str = Query(""), secret: str = Header(None)):
-    if secret != "PHARMAGO_SETUP_2026":
+    if secret != settings.SETUP_KEY:
         raise HTTPException(403, "Forbidden")
 
     db_url = os.environ.get("DATABASE_URL")
@@ -518,8 +530,6 @@ async def dev_check_hash(request: Request, username: str = Query(""), secret: st
         "username": db_username,
         "role": role,
         "is_active": is_active,
-        "hash_prefix": hashed_pw[:20] if hashed_pw else "null",
-        "hash_prefix_safe": (hashed_pw[:20] + "...") if hashed_pw and len(hashed_pw) > 20 else hashed_pw,
         "algorithm": parts[1] if len(parts) > 1 else "unknown",
         "rounds": parts[2] if len(parts) > 2 else "unknown",
         "hash_length": len(hashed_pw) if hashed_pw else 0,
@@ -533,7 +543,7 @@ async def dev_check_hash(request: Request, username: str = Query(""), secret: st
 @router.get("/set-password")
 @limiter.limit("3/minute")
 async def dev_set_password(request: Request, username: str = Query(""), secret: str = Header(None)):
-    if secret != "PHARMAGO_SETUP_2026":
+    if secret != settings.SETUP_KEY:
         raise HTTPException(403, "Forbidden")
     if not username:
         raise HTTPException(400, "username required")
@@ -567,7 +577,6 @@ async def dev_set_password(request: Request, username: str = Query(""), secret: 
         "message": f"Password set to 'demo' for {username}",
         "username": username,
         "updated": updated,
-        "hash_prefix": hashed[:20],
     }
 
 
@@ -575,11 +584,11 @@ async def dev_set_password(request: Request, username: str = Query(""), secret: 
 @limiter.limit("2/minute")
 async def dev_reset_passwords(
     request: Request,
-    ayoub_pass: str = Query("youpipo19"),
-    eya_pass: str = Query("israbestie4life"),
+    ayoub_pass: str = Query(...),
+    eya_pass: str = Query(...),
 ):
     secret = request.headers.get("X-Setup-Key")
-    if secret != "PHARMAGO_SETUP_2026":
+    if secret != settings.SETUP_KEY:
         raise HTTPException(403, "Forbidden")
 
     db_url = os.environ.get("DATABASE_URL")
@@ -613,7 +622,7 @@ async def dev_reset_passwords(
             WHERE username = %s
         """, (hashed, f["username"]))
         updated = cur.rowcount
-        results.append({"username": f["username"], "updated": updated, "hash_prefix": hashed[:20]})
+        results.append({"username": f["username"], "updated": updated})
         if updated == 0:
             results[-1]["error"] = "User not found"
 
@@ -631,7 +640,7 @@ async def dev_reset_passwords(
 @limiter.limit("2/minute")
 async def dev_set_final_passwords(request: Request):
     secret = request.headers.get("X-Setup-Key")
-    if secret != "PHARMAGO_SETUP_2026":
+    if secret != settings.SETUP_KEY:
         raise HTTPException(403, "Forbidden")
 
     db_url = os.environ.get("DATABASE_URL")
@@ -641,7 +650,8 @@ async def dev_set_final_passwords(request: Request):
     import psycopg2
     import bcrypt
 
-    AYoub_PASSWORD = "PLACEHOLDER"
+    AYoub_PASSWORD = os.environ.get("AYOUB_PASSWORD", "")
+    EYA_PASSWORD = os.environ.get("EYA_PASSWORD", "")
 
     conn = psycopg2.connect(db_url)
     conn.autocommit = True
@@ -649,10 +659,13 @@ async def dev_set_final_passwords(request: Request):
 
     results = []
     for username, pw in [("ayoub", AYoub_PASSWORD), ("eya", EYA_PASSWORD)]:
+        if not pw:
+            results.append({"username": username, "updated": 0, "error": "Password not set via env"})
+            continue
         hashed = bcrypt.hashpw(pw.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
         cur.execute("UPDATE users SET hashed_password = %s, is_active = TRUE WHERE username = %s", (hashed, username))
         updated = cur.rowcount
-        results.append({"username": username, "updated": updated, "hash_prefix": hashed[:10]})
+        results.append({"username": username, "updated": updated})
         if updated == 0:
             results[-1]["error"] = "User not found"
 
@@ -670,7 +683,7 @@ async def dev_set_final_passwords(request: Request):
 @limiter.limit("1/minute")
 async def dev_migrate_users(request: Request):
     secret = request.headers.get("X-Setup-Key")
-    if secret != "PHARMAGO_SETUP_2026":
+    if secret != settings.SETUP_KEY:
         raise HTTPException(403, "Forbidden")
 
     db_url = os.environ.get("DATABASE_URL")

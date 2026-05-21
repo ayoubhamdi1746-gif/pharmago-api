@@ -1,7 +1,7 @@
 import uuid, structlog
 from datetime import datetime, timedelta
 from decimal import Decimal
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db, Role, role_required, UserContext
@@ -31,10 +31,13 @@ def _resolve_drug_name(dpm_code: str, controlled_map: dict, lethal_map: dict) ->
 
 
 @router.get("/queue")
+@limiter.limit("30/minute")
 async def pharmacist_queue(
     request: Request,
     db: AsyncSession = Depends(get_db),
     user: UserContext = Depends(role_required(Role.PHARMACIST)),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
 ):
     ref = new_ref()
     pharmacist_user = (await db.execute(
@@ -44,9 +47,17 @@ async def pharmacist_queue(
         raise ForbiddenException("Pharmacy profile not found", ref)
     pharmacy_id = pharmacist_user.pharmacy_id
 
-    query = select(PrescriptionVerification)
     subq = select(Prescription.id).where(Prescription.pharmacy_id == pharmacy_id)
-    query = query.where(PrescriptionVerification.prescription_id.in_(subq))
+    
+    total_query = select(func.count()).select_from(PrescriptionVerification).where(
+        PrescriptionVerification.prescription_id.in_(subq)
+    )
+    total = (await db.execute(total_query)).scalar() or 0
+    
+    offset = (page - 1) * limit
+    query = select(PrescriptionVerification).where(
+        PrescriptionVerification.prescription_id.in_(subq)
+    ).offset(offset).limit(limit)
     rows = (await db.execute(query)).scalars().all()
 
     presc_ids = [pv.prescription_id for pv in rows]
@@ -71,12 +82,12 @@ async def pharmacist_queue(
         medicament = ""
         dosage = ""
         all_items = []
-        if presc and presc.items:
-            raw = presc.items if isinstance(presc.items, list) else []
+        if presc and presc.medications:
+            raw = presc.medications if isinstance(presc.medications, list) else []
             for it in raw:
-                code = it.get("dpm_code", "")
+                code = it.get("dpm_code", it.get("name", ""))
                 name = _resolve_drug_name(code, controlled_map, lethal_map)
-                dose = it.get("dose_mg", 0)
+                dose = it.get("dose_mg", it.get("dosage", 0))
                 unit = it.get("unit", "mg")
                 qty = it.get("quantity", 0)
                 all_items.append({
@@ -87,9 +98,9 @@ async def pharmacist_queue(
                     "quantity": qty,
                 })
             first = raw[0] if raw else {}
-            code = first.get("dpm_code", "")
+            code = first.get("dpm_code", first.get("name", ""))
             medicament = _resolve_drug_name(code, controlled_map, lethal_map)
-            dose = first.get("dose_mg", 0)
+            dose = first.get("dose_mg", first.get("dosage", 0))
             unit = first.get("unit", "mg")
             dosage = f"{dose} {unit}" if dose else ""
 
@@ -100,10 +111,7 @@ async def pharmacist_queue(
             "medicament": medicament,
             "dosage": dosage,
             "items": all_items,
-            "doctor_name": presc.doctor_name if presc else None,
-            "doctor_phone": presc.doctor_phone if presc else None,
-            "doctor_email": presc.doctor_email if presc else None,
-            "patient_reference_token": presc.patient_reference_token if presc else None,
+            "patient_id": presc.patient_id if presc else None,
             "pharmacist_id": str(pv.pharmacist_id) if pv.pharmacist_id else None,
             "pharmacist_license_hash": pv.pharmacist_license_hash,
             "verified_at": pv.verified_at.isoformat() if pv.verified_at else None,
@@ -111,8 +119,19 @@ async def pharmacist_queue(
             "created_at": pv.created_at.isoformat() if pv.created_at else None,
             "doctor_confirmation_status": dcr.status if dcr else None,
             "doctor_confirmation_expires_at": dcr.expires_at.isoformat() if dcr and dcr.expires_at else None,
+            "doctor_name": presc.doctor_name if presc else None,
+            "doctor_phone": presc.doctor_phone if presc else None,
+            "doctor_email": presc.doctor_email if presc else None,
         })
-    return APIResponse(status="ok", message="قائمة الوصفات", data={"prescriptions": items}, ref=ref)
+    return APIResponse(status="ok", message="قائمة الوصفات", data={
+        "prescriptions": items,
+        "pagination": {
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "pages": (total + limit - 1) // limit if limit > 0 else 0,
+        },
+    }, ref=ref)
 
 
 @router.post("/verify/{prescription_id}")
@@ -123,7 +142,13 @@ async def pharmacist_verify(
     user: UserContext = Depends(role_required(Role.PHARMACIST)),
 ):
     ref = new_ref()
-    pv = await verify_prescription(db, prescription_id, user.id, doctor_signed_token=body.doctor_signed_token, ref=ref)
+    pharmacist_user = (await db.execute(
+        select(User).where(User.identity_id == user.id)
+    )).scalar_one_or_none()
+    if not pharmacist_user:
+        raise ForbiddenException("Pharmacist profile not found", ref)
+    license_hash = pharmacist_user.pharmacist_license_hash or user.id
+    pv = await verify_prescription(db, prescription_id, license_hash, doctor_signed_token=body.doctor_signed_token, ref=ref)
     return APIResponse(status="ok", message="تم التحقق من الوصفة", data={"status": pv.status}, ref=ref)
 
 
@@ -148,6 +173,7 @@ async def pharmacist_dispense(
 
 
 @router.get("/inventory")
+@limiter.limit("30/minute")
 async def pharmacist_list_inventory(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -214,6 +240,7 @@ async def pharmacist_add_medication(
 
 
 @router.patch("/inventory/{medication_id}")
+@limiter.limit("20/minute")
 async def pharmacist_update_medication(
     medication_id: uuid.UUID, body: PharmacistUpdateMedicationRequest, request: Request,
     db: AsyncSession = Depends(get_db),
@@ -243,6 +270,7 @@ async def pharmacist_update_medication(
 
 
 @router.get("/revenue")
+@limiter.limit("20/minute")
 async def pharmacist_revenue(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -312,6 +340,7 @@ async def pharmacist_revenue(
 
 
 @router.get("/subscription")
+@limiter.limit("20/minute")
 async def pharmacist_subscription(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -347,6 +376,7 @@ async def pharmacist_subscription(
 
 
 @router.get("/transactions")
+@limiter.limit("20/minute")
 async def pharmacist_transactions(
     request: Request,
     db: AsyncSession = Depends(get_db),

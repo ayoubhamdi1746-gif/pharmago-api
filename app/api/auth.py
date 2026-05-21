@@ -55,7 +55,7 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
         try:
             password_ok = verify_password(body.password, user.hashed_password)
         except Exception as pe:
-            logger.error("auth.verify_error", error=str(pe), type=type(pe).__name__, username=body.username, hash_prefix=str(user.hashed_password[:20]) if user.hashed_password else "NULL", ref=ref)
+            logger.error("auth.verify_error", error=str(pe), type=type(pe).__name__, username=body.username, ref=ref)
             raise HTTPException(500, "Erreur interne verification")
 
         if not password_ok:
@@ -69,24 +69,18 @@ async def login(body: LoginRequest, request: Request, db: AsyncSession = Depends
         logger.info("auth.login_steps", username=body.username, ref=ref, step="before_access_token")
 
         access_token = create_access_token(user_id, role_val, identity_val)
-        logger.info("auth.login_steps", username=body.username, ref=ref, step="before_refresh_token")
-        refresh_token_result = create_refresh_token(user_id, role_val, identity_val)
-        if isinstance(refresh_token_result, tuple):
-            refresh_token = refresh_token_result[0]
-        else:
-            refresh_token = refresh_token_result
+        refresh_token = create_refresh_token(user_id, role_val, identity_val)
 
         logger.info("auth.login_success", username=body.username, role=role_val, ref=ref)
         return TokenResponse(access_token=access_token, refresh_token=refresh_token)
     except HTTPException:
         raise
     except Exception as e:
-        import sys
         tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
-        logger.error("auth.login_crash", traceback=tb, error=str(e), error_type=type(e).__name__, username=body.username, ref=ref)
+        logger.error("auth.login_crash", traceback=tb, error_type=type(e).__name__, username=body.username, ref=ref)
         return JSONResponse(
             status_code=500,
-            content={"status": "error", "message": "Erreur interne", "data": {"type": type(e).__name__, "detail": str(e)}, "ref": ref},
+            content={"status": "error", "message": "Erreur interne", "ref": ref},
         )
 
 
@@ -144,7 +138,8 @@ async def register_pharmacy(body: RegisterPharmacyRequest, request: Request, db:
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def refresh(body: RefreshRequest, request: Request, db: AsyncSession = Depends(get_db)):
     payload = decode_token(body.refresh_token)
     if payload is None or payload.get("type") != "refresh":
         logger.warning("auth.refresh_invalid_token")
@@ -157,6 +152,12 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(401, "User not found or inactive")
+
+    # Revoke old refresh token (rotation)
+    try:
+        await revoke_token(body.refresh_token)
+    except Exception as e:
+        logger.warning("auth.refresh_revoke_failed", error=str(e))
 
     access_token = create_access_token(user.id, user.role, user.identity_id)
     refresh_token = create_refresh_token(user.id, user.role, user.identity_id)
@@ -191,14 +192,15 @@ async def register_pharmacy(body: PharmacyRegisterRequest, request: Request, db:
         # Create user
         user = User(
             id=user_id,
-            username=body.email.split('@')[0][:20],  # Use email prefix as username
+            username=body.email.split('@')[0][:20],
             email=body.email,
             hashed_password=hashed_password,
             role="pharmacist",
             identity_id=identity_id,
-            is_active=False,  # Pending verification
+            is_active=False,
             pharmacy_id=pharmacy_id,
             city=body.city,
+            pharmacist_license_hash=identity_id,
         )
         db.add(user)
         

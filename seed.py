@@ -62,7 +62,7 @@ async def seed():
 
         # ── USERS (لـ /auth/login) ──────────────────────────────────────
         session.add(User(username="patient",   role="patient",   identity_id=PATIENT_TOKEN, hashed_password=hash_password("demo"), is_active=True))
-        session.add(User(username="pharmacist", role="pharmacist", identity_id=PHARM_HASH,   hashed_password=hash_password("demo"), is_active=True, pharmacy_id=str(pharmacy_id), city="Tunis"))
+        session.add(User(username="pharmacist", role="pharmacist", identity_id=PHARM_HASH,   hashed_password=hash_password("demo"), is_active=True, pharmacy_id=str(pharmacy_id), city="Tunis", pharmacist_license_hash=PHARM_HASH))
         session.add(User(username="doctor",    role="doctor",    identity_id=DOCTOR_HASH,   hashed_password=hash_password("demo"), is_active=True))
         session.add(User(username="driver",    role="driver",    identity_id=DRIVER_HASH,   hashed_password=hash_password("demo"), is_active=True))
         session.add(User(username="admin",     role="admin",     identity_id=ADMIN_KEY,     hashed_password=hash_password("demo"), is_active=True))

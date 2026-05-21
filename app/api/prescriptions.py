@@ -1,4 +1,4 @@
-import uuid, hashlib, structlog
+import uuid, hashlib, traceback, structlog
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import select, func, and_, or_, text
@@ -12,12 +12,14 @@ from app.models.pharmacy import LicensedPharmacist
 from app.models.delivery import VettedDriver
 from app.logging.cfg import new_ref
 import json
+from app.limiter import limiter
 
 router = APIRouter()
 logger = structlog.get_logger()
 
 
 @router.post("")
+@limiter.limit("10/minute")
 async def create_prescription(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -27,6 +29,7 @@ async def create_prescription(
         body = await request.json()
         pharmacy_id = body.get("pharmacy_id")
         medications = body.get("medications", [])
+        image_url = body.get("image_url")
         
         if not pharmacy_id:
             raise HTTPException(400, "pharmacy_id is required")
@@ -58,24 +61,43 @@ async def create_prescription(
             if not isinstance(med["quantity"], int) or med["quantity"] <= 0:
                 raise HTTPException(400, "Quantity must be a positive integer")
         
+        # Look up patient user UUID
+        patient_result = await db.execute(
+            select(User).where(User.identity_id == user.id)
+        )
+        patient_user = patient_result.scalar_one_or_none()
+        if not patient_user:
+            raise HTTPException(404, "Patient user not found")
+        patient_uuid = patient_user.id
+        
+        doctor_name = body.get("doctor_name")
+        doctor_phone = body.get("doctor_phone")
+        doctor_email = body.get("doctor_email")
+        issue_date = body.get("issue_date")
+        
         # Create prescription
-        prescription_id = str(uuid.uuid4())
+        prescription_id = uuid.uuid4()
         prescription = Prescription(
             id=prescription_id,
-            patient_id=user.id,
+            patient_id=patient_uuid,
             pharmacy_id=pharmacy_id,
             medications=medications,
             status="pending",
             risk_level="low",
+            image_url=image_url,
+            doctor_name=doctor_name,
+            doctor_phone=doctor_phone,
+            doctor_email=doctor_email,
+            issue_date=issue_date,
         )
         db.add(prescription)
         
         # Create initial event
         event = PrescriptionEvent(
-            id=str(uuid.uuid4()),
-            prescription_id=prescription_id,
+            id=uuid.uuid4(),
+            prescription_id=str(prescription_id),
             event_type="created",
-            actor_id=user.id,
+            actor_id=patient_uuid,
             note="Prescription submitted by patient",
         )
         db.add(event)
@@ -102,6 +124,7 @@ async def create_prescription(
 
 
 @router.get("/queue")
+@limiter.limit("30/minute")
 async def get_pharmacy_queue(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -180,6 +203,7 @@ async def get_pharmacy_queue(
 
 
 @router.patch("/{prescription_id}/verify")
+@limiter.limit("20/minute")
 async def verify_prescription(
     prescription_id: uuid.UUID,
     request: Request,
@@ -196,7 +220,7 @@ async def verify_prescription(
         
         # Get prescription
         prescription_result = await db.execute(
-            select(Prescription).where(Prescription.id == str(prescription_id))
+            select(Prescription).where(Prescription.id == prescription_id)
         )
         prescription = prescription_result.scalar_one_or_none()
         if not prescription:
@@ -213,8 +237,8 @@ async def verify_prescription(
         
         # Create verification record
         verification = PrescriptionVerification(
-            id=str(uuid.uuid4()),
-            prescription_id=str(prescription_id),
+            id=uuid.uuid4(),
+            prescription_id=prescription_id,
             status=status.upper(),
             pharmacist_id=user.id,
             verified_at=datetime.utcnow() if status == "verified" else None,
@@ -224,7 +248,7 @@ async def verify_prescription(
         
         # Create event
         event = PrescriptionEvent(
-            id=str(uuid.uuid4()),
+            id=uuid.uuid4(),
             prescription_id=str(prescription_id),
             event_type=status,
             actor_id=user.id,
@@ -253,6 +277,7 @@ async def verify_prescription(
 
 
 @router.get("/my")
+@limiter.limit("30/minute")
 async def get_patient_prescriptions(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -261,10 +286,16 @@ async def get_patient_prescriptions(
     limit: int = Query(20, ge=1, le=100),
 ):
     try:
-        patient_id = user.id
+        patient_result = await db.execute(
+            select(User).where(User.identity_id == user.id)
+        )
+        patient_user = patient_result.scalar_one_or_none()
+        if not patient_user:
+            raise HTTPException(404, "Patient user not found")
+        patient_uuid = patient_user.id
         
         # Get total count
-        total_query = select(func.count(Prescription.id)).where(Prescription.patient_id == patient_id)
+        total_query = select(func.count(Prescription.id)).where(Prescription.patient_id == patient_uuid)
         total_result = await db.execute(total_query)
         total = total_result.scalar()
         
@@ -272,7 +303,7 @@ async def get_patient_prescriptions(
         offset = (page - 1) * limit
         prescriptions_query = (
             select(Prescription)
-            .where(Prescription.patient_id == patient_id)
+            .where(Prescription.patient_id == patient_uuid)
             .order_by(Prescription.created_at.desc())
             .offset(offset)
             .limit(limit)
@@ -290,6 +321,10 @@ async def get_patient_prescriptions(
                 "status": prescription.status,
                 "risk_level": prescription.risk_level,
                 "image_url": prescription.image_url,
+                "doctor_name": prescription.doctor_name,
+                "doctor_phone": prescription.doctor_phone,
+                "doctor_email": prescription.doctor_email,
+                "issue_date": prescription.issue_date,
                 "created_at": prescription.created_at.isoformat() if prescription.created_at else None,
                 "updated_at": prescription.updated_at.isoformat() if prescription.updated_at else None,
             })
@@ -313,3 +348,33 @@ async def get_patient_prescriptions(
         tb = "".join(traceback.format_exc())
         logger.error("prescription.my_error", traceback=tb, error=str(e))
         raise HTTPException(500, "Internal server error")
+
+
+@router.post("/upload-image")
+@limiter.limit("10/minute")
+async def upload_prescription_image(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: UserContext = Depends(role_required(Role.PATIENT)),
+):
+    import os, uuid as _uuid
+    from fastapi import UploadFile, File
+    form = await request.form()
+    file: UploadFile | None = form.get("file")
+    if not file:
+        raise HTTPException(400, "No file provided")
+    ext = os.path.splitext(file.filename or "image.jpg")[1] or ".jpg"
+    filename = f"{_uuid.uuid4().hex}{ext}"
+    upload_dir = os.path.join(os.path.dirname(__file__), "..", "..", "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    filepath = os.path.join(upload_dir, filename)
+    content = await file.read()
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(400, "File too large (max 5MB)")
+    with open(filepath, "wb") as f:
+        f.write(content)
+    from app.config import settings
+    base = settings.FRONTEND_URL.rstrip("/")
+    url = f"{base}/uploads/{filename}"
+    logger.info("image.uploaded", url=url, filename=filename)
+    return APIResponse(status="ok", message="Image uploaded", data={"image_url": url})

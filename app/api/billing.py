@@ -19,7 +19,7 @@ from app.config import settings
 router = APIRouter()
 logger = structlog.get_logger()
 
-BASE_CALLBACK = "https://api.pharmago.tn"
+BASE_CALLBACK = settings.FRONTEND_URL.rstrip("/")
 
 
 @router.post("/register-pharmacy")
@@ -32,7 +32,7 @@ async def billing_register_pharmacy(
     try:
         plan_enum = SubscriptionPlan(body.plan.upper())
     except ValueError:
-        return APIResponse(status="error", message="Invalid plan", ref=ref)
+        return APIResponse(status="error", message="Invalid plan. Choose STARTER, PRO, or ENTERPRISE", ref=ref)
 
     price = PLAN_PRICES[plan_enum]
     limit = PLAN_LIMITS[plan_enum]
@@ -50,6 +50,7 @@ async def billing_register_pharmacy(
         pharmacy_id=str(pharmacy_id),
         city=body.city,
         email=body.email or None,
+        pharmacist_license_hash=identity_id,
     )
     db.add(user)
 
@@ -78,7 +79,12 @@ async def billing_register_pharmacy(
     payment_url = None
     provider_payment_id = None
 
-    if provider == PaymentProvider.KONNECT:
+    if settings.DEV_MODE:
+        user.is_active = True
+        sub.is_active = True
+        payment_url = f"{BASE_CALLBACK}/billing/success?sub_id={sub.id}&dev=1"
+        provider_payment_id = f"dev_{uuid.uuid4().hex[:12]}"
+    elif provider == PaymentProvider.KONNECT:
         try:
             konnect_resp = await create_konnect_payment(
                 amount_tnd=price,
@@ -123,6 +129,52 @@ async def billing_register_pharmacy(
     )
     db.add(txn)
     await db.commit()
+
+    from app.models.notification import Notification
+    from app.models.pharmacy import LicensedPharmacist
+    try:
+        admin_notif = Notification(user_id="admin", title="Nouvelle inscription pharmacie", message=f"{body.pharmacy_name} - {body.responsible_name}", type="pharmacy")
+        db.add(admin_notif)
+        await db.flush()
+    except Exception:
+        pass
+
+    if settings.DEV_MODE:
+        try:
+            existing_license = await db.execute(
+                select(LicensedPharmacist).where(LicensedPharmacist.pharmacist_license_hash == identity_id)
+            )
+            if not existing_license.scalar_one_or_none():
+                license = LicensedPharmacist(
+                    pharmacist_license_hash=identity_id,
+                    full_name_encrypted=identity_id.encode(),
+                    is_active=True,
+                )
+                db.add(license)
+                await db.flush()
+        except Exception:
+            pass
+
+    try:
+        from app.services.notification_service import send_email
+        welcome_subject = "Bienvenue sur PharmaGo !"
+        welcome_body = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px;">
+            <h2 style="color: #00D4AA;">Bienvenue sur PharmaGo !</h2>
+            <p>Bonjour {body.responsible_name},</p>
+            <p>Votre pharmacie <strong>{body.pharmacy_name}</strong> a bien été enregistrée.</p>
+            <p><strong>Identifiants de connexion :</strong></p>
+            <ul>
+                <li>Nom d'utilisateur : <code>{username}</code></li>
+                <li>Ville : {body.city}</li>
+            </ul>
+            <p>Votre compte sera activé dès confirmation du paiement.</p>
+            <p style="margin-top: 30px; font-size: 12px; color: #888;">L'équipe PharmaGo - contact@pharmago.tn</p>
+        </div>
+        """
+        await send_email(body.email, welcome_subject, welcome_body)
+    except Exception:
+        logger.warning("welcome_email_skipped", username=username)
 
     return APIResponse(status="ok", message="Inscription créée, en attente de paiement", data={
         "payment_url": payment_url,

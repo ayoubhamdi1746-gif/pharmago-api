@@ -20,3 +20,4 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     full_name = Column(String(255), nullable=True)
     is_verified = Column(Boolean, default=False)
+    pharmacist_license_hash = Column(String(64), nullable=True)

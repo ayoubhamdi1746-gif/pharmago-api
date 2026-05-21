@@ -17,8 +17,12 @@ class Prescription(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending")
     risk_level: Mapped[str] = mapped_column(String(20), default="low")
     pharmacist_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    doctor_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    doctor_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    doctor_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    issue_date: Mapped[str | None] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class PrescriptionVerification(Base):
@@ -27,7 +31,7 @@ class PrescriptionVerification(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     prescription_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("prescriptions.id"), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="pending")
-    pharmacist_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("users.id"), nullable=True)
+    pharmacist_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("users.id"), nullable=True)
     pharmacist_license_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     dispensed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
