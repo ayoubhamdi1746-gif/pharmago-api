@@ -111,8 +111,7 @@ def create_app() -> FastAPI:
     async def debug_startup():
         from app.database import get_engine
         from sqlalchemy import text
-        import structlog
-        log = structlog.get_logger()
+        from app.config import settings
         result = []
         try:
             async with get_engine().connect() as conn:
@@ -122,10 +121,21 @@ def create_app() -> FastAPI:
         except Exception as e:
             result.append({"engine_ok": False, "error": str(e)})
         try:
-            from app.config import settings
-            result.append({"db_url_prefix": settings.DATABASE_URL[:30] + "..." if settings.DATABASE_URL else "NOT SET"})
+            from app.services.auth_service import hash_password, verify_password, create_access_token
+            pw = hash_password("test123")
+            ok = verify_password("test123", pw)
+            token = create_access_token("user123", "patient", "id123")
+            result.append({"auth_ok": True, "verify_pass": ok, "token_prefix": token[:20]})
         except Exception as e:
-            result.append({"db_url_error": str(e)})
+            import traceback
+            result.append({"auth_error": str(e), "traceback": traceback.format_exc()})
+        try:
+            from app.services.auth_service import pwd_context
+            result.append({"crypt_rounds": pwd_context.bcrypt__rounds if hasattr(pwd_context, 'bcrypt__rounds') else 'unknown'})
+        except Exception as e:
+            result.append({"crypt_err": str(e)})
+        result.append({"db_url_prefix": settings.DATABASE_URL[:30] + "..." if settings.DATABASE_URL else "NOT SET"})
+        result.append({"jwt_secret_set": bool(settings.JWT_SECRET), "jwt_secret_len": len(settings.JWT_SECRET)})
         return result
 
     # Dev routes available only in DEV_MODE
