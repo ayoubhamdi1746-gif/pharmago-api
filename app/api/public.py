@@ -13,6 +13,31 @@ router = APIRouter()
 logger = structlog.get_logger()
 
 
+@router.get("/pharmacies")
+@limiter.limit("30/minute")
+async def list_pharmacies(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models.user import User
+    from app.models.pharmacy_profile import PharmacyProfile
+    from sqlalchemy import select
+
+    rows = (await db.execute(
+        select(User.id, PharmacyProfile.pharmacy_name, PharmacyProfile.city)
+        .join(PharmacyProfile, User.id == PharmacyProfile.user_id)
+        .where(User.role == "pharmacist", User.is_active == True)
+        .order_by(PharmacyProfile.pharmacy_name)
+    )).all()
+
+    return APIResponse(status="ok", message="", data={
+        "pharmacies": [
+            {"id": str(row[0]), "name": row[1] or "Pharmacie", "city": row[2] or ""}
+            for row in rows
+        ],
+    })
+
+
 class DemoRequestCreate(BaseModel):
     name: str
     pharmacy: str
