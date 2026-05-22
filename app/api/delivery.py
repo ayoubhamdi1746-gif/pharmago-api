@@ -1,7 +1,6 @@
 import uuid, hashlib, structlog, secrets, traceback
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
-from pydantic import BaseModel
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db, get_current_user, Role, role_required, UserContext

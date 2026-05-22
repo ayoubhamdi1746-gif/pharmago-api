@@ -190,6 +190,30 @@ async def super_update_role(
     }, ref=ref)
 
 
+@router.patch("/users/{user_id}/toggle")
+@limiter.limit("10/minute")
+async def super_toggle_user(
+    user_id: uuid.UUID, request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: UserContext = Depends(role_required(Role.SUPER_ADMIN)),
+):
+    ref = new_ref()
+    target = await db.get(User, str(user_id))
+    if not target:
+        from app.exceptions.handlers import NotFoundException
+        raise NotFoundException("User not found", ref)
+
+    target.is_active = not target.is_active
+    await db.commit()
+
+    status_text = "activated" if target.is_active else "deactivated"
+    return APIResponse(status="ok", message=f"User {status_text}", data={
+        "id": str(target.id),
+        "username": target.username,
+        "is_active": target.is_active,
+    }, ref=ref)
+
+
 @router.delete("/users/{user_id}")
 @limiter.limit("10/minute")
 async def super_delete_user(

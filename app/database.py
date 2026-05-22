@@ -63,7 +63,7 @@ async def check_db() -> bool:
         return False
 
 
-VALID_TABLES = frozenset({"users", "prescriptions", "pharmacy_profiles"})
+VALID_TABLES = frozenset({"users", "prescriptions", "pharmacy_profiles", "password_reset_otps", "vetted_drivers"})
 VALID_COLUMNS = frozenset({
     "updated_at", "full_name", "is_verified",
     "patient_id", "pharmacy_id", "image_url", "medications",
@@ -94,6 +94,7 @@ async def auto_migrate():
         ("pharmacy_profiles", "phone", "VARCHAR(20)"),
         ("pharmacy_profiles", "logo_url", "TEXT"),
         ("pharmacy_profiles", "is_verified", "BOOLEAN DEFAULT FALSE"),
+        ("vetted_drivers", "user_id", "VARCHAR(36)"),
     ]
     
     try:

@@ -90,7 +90,7 @@ async def update_driver_location(
     await db.commit()
 
     if delivery_id in ACTIVE_STREAMS:
-        event = {"type": "location", "latitude": lat, "longitude": lng, "timestamp": datetime.now(timezone.utc).isoformat()}
+        event = {"type": "location", "latitude": body.latitude, "longitude": body.longitude, "timestamp": datetime.now(timezone.utc).isoformat()}
         await ACTIVE_STREAMS[delivery_id].put(event)
 
     return APIResponse(status="ok", message="Location updated")

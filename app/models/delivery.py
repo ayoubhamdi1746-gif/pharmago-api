@@ -62,6 +62,7 @@ class VettedDriver(Base):
     __tablename__ = "vetted_drivers"
 
     driver_token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
     issuing_pharmacy_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, index=True)
     license_issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     license_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

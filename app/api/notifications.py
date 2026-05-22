@@ -164,6 +164,30 @@ async def get_unread_count(
         raise HTTPException(500, "Internal server error")
 
 
+@router.post("/mark-all-read")
+@limiter.limit("10/minute")
+async def mark_all_read(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: UserContext = Depends(get_current_user),
+):
+    try:
+        await db.execute(
+            Notification.__table__.update().where(
+                and_(
+                    Notification.user_id == user.id,
+                    Notification.is_read == False
+                )
+            ).values(is_read=True)
+        )
+        await db.commit()
+        return APIResponse(status="ok", message="All notifications marked as read")
+    except Exception as e:
+        tb = "".join(traceback.format_exc())
+        logger.error("notification.mark_all_read_error", traceback=tb, error=str(e))
+        raise HTTPException(500, "Internal server error")
+
+
 @router.get("/count/unread")
 @limiter.limit("30/minute")
 async def get_unread_notification_count(
