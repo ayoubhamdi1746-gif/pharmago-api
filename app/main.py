@@ -107,6 +107,27 @@ def create_app() -> FastAPI:
     app.include_router(marketplace_router, prefix="/marketplace", tags=["marketplace"])
     app.include_router(smart_inventory_router, prefix="/pharmacy/inventory", tags=["pharmacy"])
 
+    @app.get("/debug/startup")
+    async def debug_startup():
+        from app.database import get_engine
+        from sqlalchemy import text
+        import structlog
+        log = structlog.get_logger()
+        result = []
+        try:
+            async with get_engine().connect() as conn:
+                rows = await conn.execute(text("SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname='public'"))
+                tables = [r[0] for r in rows.fetchall()]
+                result.append({"engine_ok": True, "tables": tables})
+        except Exception as e:
+            result.append({"engine_ok": False, "error": str(e)})
+        try:
+            from app.config import settings
+            result.append({"db_url_prefix": settings.DATABASE_URL[:30] + "..." if settings.DATABASE_URL else "NOT SET"})
+        except Exception as e:
+            result.append({"db_url_error": str(e)})
+        return result
+
     # Dev routes available only in DEV_MODE
     if settings.DEV_MODE:
         try:
