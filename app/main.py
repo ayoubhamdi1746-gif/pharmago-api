@@ -109,9 +109,11 @@ def create_app() -> FastAPI:
 
     @app.get("/debug/startup")
     async def debug_startup():
-        from app.database import get_engine
-        from sqlalchemy import text
+        from app.database import get_engine, get_session_maker
+        from sqlalchemy import text, select
         from app.config import settings
+        from app.models.user import User
+        import traceback as tb_mod
         result = []
         try:
             async with get_engine().connect() as conn:
@@ -119,7 +121,7 @@ def create_app() -> FastAPI:
                 tables = [r[0] for r in rows.fetchall()]
                 result.append({"engine_ok": True, "tables": tables})
         except Exception as e:
-            result.append({"engine_ok": False, "error": str(e)})
+            result.append({"engine_ok": False, "error": str(e), "tb": tb_mod.format_exc()})
         try:
             from app.services.auth_service import hash_password, verify_password, create_access_token
             pw = hash_password("test123")
@@ -127,13 +129,15 @@ def create_app() -> FastAPI:
             token = create_access_token("user123", "patient", "id123")
             result.append({"auth_ok": True, "verify_pass": ok, "token_prefix": token[:20]})
         except Exception as e:
-            import traceback
-            result.append({"auth_error": str(e), "traceback": traceback.format_exc()})
+            result.append({"auth_error": str(e), "tb": tb_mod.format_exc()})
         try:
-            from app.services.auth_service import pwd_context
-            result.append({"crypt_rounds": pwd_context.bcrypt__rounds if hasattr(pwd_context, 'bcrypt__rounds') else 'unknown'})
+            maker = get_session_maker()
+            async with maker() as session:
+                r = await session.execute(select(User).where(User.username == "__debug_test__"))
+                user = r.scalar_one_or_none()
+                result.append({"session_ok": True, "user_found": user is not None})
         except Exception as e:
-            result.append({"crypt_err": str(e)})
+            result.append({"session_error": str(e), "tb": tb_mod.format_exc()})
         result.append({"db_url_prefix": settings.DATABASE_URL[:30] + "..." if settings.DATABASE_URL else "NOT SET"})
         result.append({"jwt_secret_set": bool(settings.JWT_SECRET), "jwt_secret_len": len(settings.JWT_SECRET)})
         return result
