@@ -69,6 +69,7 @@ VALID_COLUMNS = frozenset({
     "patient_id", "pharmacy_id", "image_url", "medications",
     "status", "risk_level", "pharmacist_note",
     "user_id", "pharmacy_name", "city", "address", "phone", "logo_url",
+    "pharmacist_license_hash",
 })
 
 
@@ -94,6 +95,7 @@ async def auto_migrate():
         ("pharmacy_profiles", "phone", "VARCHAR(20)"),
         ("pharmacy_profiles", "logo_url", "TEXT"),
         ("pharmacy_profiles", "is_verified", "BOOLEAN DEFAULT FALSE"),
+        ("users", "pharmacist_license_hash", "VARCHAR(64)"),
         ("vetted_drivers", "user_id", "VARCHAR(36)"),
     ]
     
