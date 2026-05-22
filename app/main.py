@@ -131,13 +131,24 @@ def create_app() -> FastAPI:
         except Exception as e:
             result.append({"auth_error": str(e), "tb": tb_mod.format_exc()})
         try:
+            # Fix missing pharmacst_license_hash column
+            async with get_engine().connect() as conn:
+                r = await conn.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name='users' AND column_name='pharmacist_license_hash'"))
+                if not r.scalar():
+                    await conn.execute(text("ALTER TABLE users ADD COLUMN pharmacist_license_hash VARCHAR(64)"))
+                    result.append({"fixed_column": "pharmacist_license_hash added"})
+                else:
+                    result.append({"fixed_column": "already exists"})
+        except Exception as e:
+            result.append({"fixed_column_error": str(e)})
+        try:
             maker = get_session_maker()
             async with maker() as session:
                 r = await session.execute(select(User).where(User.username == "__debug_test__"))
                 user = r.scalar_one_or_none()
                 result.append({"session_ok": True, "user_found": user is not None})
         except Exception as e:
-            result.append({"session_error": str(e), "tb": tb_mod.format_exc()})
+            result.append({"session_error": str(e), "tb": tb_mod.format_exc()[:200]})
         result.append({"db_url_prefix": settings.DATABASE_URL[:30] + "..." if settings.DATABASE_URL else "NOT SET"})
         result.append({"jwt_secret_set": bool(settings.JWT_SECRET), "jwt_secret_len": len(settings.JWT_SECRET)})
         return result
