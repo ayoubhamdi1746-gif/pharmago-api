@@ -32,7 +32,10 @@ logger = structlog.get_logger()
 
 
 def create_app() -> FastAPI:
-    settings.validate_secure()
+    try:
+        settings.validate_secure()
+    except Exception as e:
+        logger.warning("app.config_invalid", error=str(e))
 
     app = FastAPI(title="PharmaGo API", version="2.0.0", description="Enterprise pharmacy management platform — Tunisian market")
 

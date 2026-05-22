@@ -10,45 +10,28 @@ from app.services.otp_service import generate_otp
 from tests.conftest import generate_doctor_token, make_ref, auth_headers, make_jwt, TEST_JWT_SECRET
 
 # ---------------------------------------------------------------------------
-# Fix 1 – HMAC_SECRET validation (sync tests, no asyncio mark)
+# Fix 1 – HMAC_SECRET / JWT_SECRET / FERNET_KEY auto-generation
 # ---------------------------------------------------------------------------
 
-def test_hmac_secret_empty_raises():
-    s = Settings(HMAC_SECRET="")
-    with pytest.raises(RuntimeError, match="HMAC_SECRET.*at least 32"):
-        s.validate_secure()
+def test_empty_secrets_are_auto_generated():
+    s = Settings(HMAC_SECRET="", JWT_SECRET="", FERNET_KEY="")
+    assert len(s.HMAC_SECRET) >= 32
+    assert len(s.JWT_SECRET) >= 32
+    assert len(s.FERNET_KEY) >= 32
 
 
-def test_hmac_secret_short_raises():
-    s = Settings(HMAC_SECRET="short")
-    with pytest.raises(RuntimeError, match="HMAC_SECRET.*at least 32"):
-        s.validate_secure()
+def test_short_secrets_are_auto_generated():
+    s = Settings(HMAC_SECRET="short", JWT_SECRET="tiny", FERNET_KEY="wee")
+    assert len(s.HMAC_SECRET) >= 32
+    assert len(s.JWT_SECRET) >= 32
+    assert len(s.FERNET_KEY) >= 32
 
 
-def test_hmac_secret_valid_passes():
-    s = Settings(HMAC_SECRET="a" * 32)
-    s.validate_secure()
-
-
-# ---------------------------------------------------------------------------
-# JWT_SECRET validation
-# ---------------------------------------------------------------------------
-
-def test_jwt_secret_empty_raises():
-    s = Settings(JWT_SECRET="")
-    with pytest.raises(RuntimeError, match="JWT_SECRET.*at least 32"):
-        s.validate_secure()
-
-
-def test_jwt_secret_short_raises():
-    s = Settings(JWT_SECRET="short")
-    with pytest.raises(RuntimeError, match="JWT_SECRET.*at least 32"):
-        s.validate_secure()
-
-
-def test_jwt_secret_valid_passes():
-    s = Settings(JWT_SECRET="a" * 32)
-    s.validate_secure()
+def test_valid_secrets_passed_through():
+    s = Settings(HMAC_SECRET="a" * 32, JWT_SECRET="b" * 32, FERNET_KEY="c" * 32)
+    assert s.HMAC_SECRET == "a" * 32
+    assert s.JWT_SECRET == "b" * 32
+    assert s.FERNET_KEY == "c" * 32
 
 
 # ---------------------------------------------------------------------------

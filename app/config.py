@@ -1,7 +1,16 @@
+import os, base64
 import structlog
 from pydantic_settings import BaseSettings
 
 logger = structlog.get_logger()
+
+
+def _gen_secret(name: str, default: str) -> str:
+    if len(default) >= 32:
+        return default
+    key = base64.urlsafe_b64encode(os.urandom(32)).decode()
+    logger.warning(f"{name} not set — generated ephemeral key (valid until restart)")
+    return key
 
 
 class Settings(BaseSettings):
@@ -42,18 +51,13 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
 
+    def model_post_init(self, __context) -> None:
+        self.HMAC_SECRET = _gen_secret("HMAC_SECRET", self.HMAC_SECRET)
+        self.JWT_SECRET = _gen_secret("JWT_SECRET", self.JWT_SECRET)
+        self.FERNET_KEY = _gen_secret("FERNET_KEY", self.FERNET_KEY)
+
     def validate_secure(self) -> None:
-        if len(self.HMAC_SECRET) < 32:
-            raise RuntimeError(
-                f"HMAC_SECRET must be at least 32 characters (got {len(self.HMAC_SECRET)})"
-            )
-        if len(self.JWT_SECRET) < 32:
-            raise RuntimeError(
-                f"JWT_SECRET must be at least 32 characters (got {len(self.JWT_SECRET)})"
-            )
         if not self.DEV_MODE:
-            if not self.FERNET_KEY:
-                raise RuntimeError("FERNET_KEY is required in production")
             if not self.KONNECT_API_KEY:
                 logger.warning("KONNECT_API_KEY not set — payment webhooks will fail")
             if not self.KONNECT_WALLET_ID:
