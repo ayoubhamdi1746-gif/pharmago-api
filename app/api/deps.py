@@ -66,6 +66,15 @@ def doctor_confirm_key(request: Request) -> str:
     return request.client.host or "unknown"
 
 
+async def resolve_user_id(db: AsyncSession, identity_id: str) -> str | None:
+    """Resolve identity_id to User.id (UUID). All FKs point to User.id, not identity_id."""
+    from app.models.user import User
+    from sqlalchemy import select
+    result = await db.execute(select(User.id).where(User.identity_id == identity_id))
+    user_row = result.first()
+    return user_row[0] if user_row else identity_id
+
+
 def driver_fulfill_key(request: Request) -> str:
     token = request.headers.get("authorization", "")
     if token.startswith("Bearer "):

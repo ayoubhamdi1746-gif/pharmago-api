@@ -1,4 +1,7 @@
+import structlog
 from pydantic_settings import BaseSettings
+
+logger = structlog.get_logger()
 
 
 class Settings(BaseSettings):
@@ -48,6 +51,13 @@ class Settings(BaseSettings):
             raise RuntimeError(
                 f"JWT_SECRET must be at least 32 characters (got {len(self.JWT_SECRET)})"
             )
+        if not self.DEV_MODE:
+            if not self.FERNET_KEY:
+                raise RuntimeError("FERNET_KEY is required in production")
+            if not self.KONNECT_API_KEY:
+                logger.warning("KONNECT_API_KEY not set — payment webhooks will fail")
+            if not self.KONNECT_WALLET_ID:
+                logger.warning("KONNECT_WALLET_ID not set — payment webhooks will fail")
 
 
 settings = Settings()

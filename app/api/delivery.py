@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.api.deps import get_db, get_current_user, Role, role_required, UserContext
+from app.api.deps import get_db, get_current_user, Role, role_required, UserContext, resolve_user_id
 from app.schemas.common import APIResponse
 from app.models.delivery import Delivery
 from app.models.prescription import Prescription
@@ -65,7 +65,8 @@ async def assign_delivery(
             raise HTTPException(404, "Driver not found or not active")
         
         # Validate pharmacy owns this prescription
-        if prescription.pharmacy_id != user.id:
+        pharmacist_uuid = await resolve_user_id(db, user.id)
+        if prescription.pharmacy_id not in (user.id, pharmacist_uuid):
             raise HTTPException(403, "Not authorized to assign delivery for this prescription")
         
         # Check if delivery already exists for this prescription
@@ -84,7 +85,7 @@ async def assign_delivery(
             id=uuid.uuid4(),
             prescription_id=prescription_id,
             driver_id=driver_id,
-            pharmacy_id=user.id,
+            pharmacy_id=pharmacist_uuid or user.id,
             patient_id=str(prescription.patient_id),
             status="assigned",
             otp_code=otp_code,
@@ -133,7 +134,8 @@ async def pickup_delivery(
             raise HTTPException(404, "Delivery not found")
         
         # Validate driver owns this delivery
-        if delivery.driver_id != user.id:
+        driver_uuid = await resolve_user_id(db, user.id)
+        if delivery.driver_id not in (user.id, driver_uuid):
             raise HTTPException(403, "Not authorized to pickup this delivery")
         
         # Validate status
@@ -191,7 +193,8 @@ async def deliver_prescription(
             raise HTTPException(404, "Delivery not found")
         
         # Validate driver owns this delivery
-        if delivery.driver_id != user.id:
+        driver_uuid = await resolve_user_id(db, user.id)
+        if delivery.driver_id not in (user.id, driver_uuid):
             raise HTTPException(403, "Not authorized to deliver this delivery")
         
         # Validate status
@@ -253,7 +256,8 @@ async def get_driver_deliveries(
     limit: int = Query(20, ge=1, le=100),
 ):
     try:
-        driver_id = user.id
+        driver_uuid = await resolve_user_id(db, user.id)
+        driver_id = driver_uuid or user.id
         
         # Build query
         query = select(Delivery).where(Delivery.driver_id == driver_id)
@@ -316,7 +320,8 @@ async def get_active_deliveries(
     limit: int = Query(20, ge=1, le=100),
 ):
     try:
-        pharmacy_id = user.id
+        pharmacist_uuid = await resolve_user_id(db, user.id)
+        pharmacy_id = pharmacist_uuid or user.id
         
         # Get total count
         total_query = select(func.count(Delivery.id)).where(

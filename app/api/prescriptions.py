@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Query, WebSocket
 from pydantic import BaseModel
 from sqlalchemy import select, func, and_, or_, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.api.deps import get_db, get_current_user, Role, role_required, UserContext
+from app.api.deps import get_db, get_current_user, Role, role_required, UserContext, resolve_user_id
 from app.schemas.common import APIResponse
 from app.models.prescription import Prescription, PrescriptionVerification, PrescriptionEvent
 from app.models.user import User
@@ -141,7 +141,8 @@ async def get_pharmacy_queue(
     limit: int = Query(20, ge=1, le=100),
 ):
     try:
-        pharmacy_id = user.id
+        pharmacist_uuid = await resolve_user_id(db, user.id)
+        pharmacy_id = pharmacist_uuid or user.id
         
         # Get total count
         total_query = select(func.count(Prescription.id)).where(
@@ -231,7 +232,8 @@ async def verify_prescription(
             raise HTTPException(404, "Prescription not found")
         
         # Verify pharmacy owns this prescription
-        if prescription.pharmacy_id != user.id:
+        pharmacist_uuid = await resolve_user_id(db, user.id)
+        if prescription.pharmacy_id not in (user.id, pharmacist_uuid):
             raise HTTPException(403, "Not authorized to modify this prescription")
         
         # Update prescription

@@ -2,7 +2,7 @@ import structlog
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.api.deps import get_db, Role, role_required, UserContext
+from app.api.deps import get_db, Role, role_required, UserContext, resolve_user_id
 from app.schemas.common import APIResponse
 from app.models.prescription import Prescription, PrescriptionVerification
 from app.models.pharmacy import ControlledSubstance, LethalRiskSubstance
@@ -30,8 +30,9 @@ async def patient_prescriptions(
     user: UserContext = Depends(role_required(Role.PATIENT)),
 ):
     ref = new_ref()
+    patient_uuid = await resolve_user_id(db, user.id)
     presc_rows = (await db.execute(
-        select(Prescription).where(Prescription.patient_id == user.id)
+        select(Prescription).where(Prescription.patient_id == patient_uuid)
     )).scalars().all()
 
     presc_ids = [p.id for p in presc_rows]
@@ -80,8 +81,9 @@ async def my_deliveries(
     user: UserContext = Depends(role_required(Role.PATIENT)),
 ):
     ref = new_ref()
+    patient_uuid = await resolve_user_id(db, user.id)
     presc_ids = (await db.execute(
-        select(Prescription.id).where(Prescription.patient_id == user.id)
+        select(Prescription.id).where(Prescription.patient_id == patient_uuid)
     )).scalars().all()
     if not presc_ids:
         return APIResponse(status="ok", message="قائمة توصيلاتك", data={"deliveries": []}, ref=ref)

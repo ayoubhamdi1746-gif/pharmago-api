@@ -41,6 +41,7 @@ def create_app() -> FastAPI:
         allow_origins=[
             "https://pharmago-front.vercel.app",
             "http://localhost:3000",
+            settings.FRONTEND_URL,
         ],
         allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
