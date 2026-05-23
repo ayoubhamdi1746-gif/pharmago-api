@@ -191,8 +191,11 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     async def startup():
-        from app.database import auto_migrate, get_engine, Base
-        from sqlalchemy import text
+        from app.database import auto_migrate, get_engine, Base, get_session_maker
+        from sqlalchemy import text, select
+        from app.models.user import User
+        from app.services.auth_service import hash_password
+        import uuid, hashlib
         engine = get_engine()
         async with engine.begin() as conn:
             existing = set()
@@ -210,9 +213,31 @@ def create_app() -> FastAPI:
                 logger.warning("app.startup_tables_skipped", tables=skipped)
         try:
             await auto_migrate()
-            logger.info("app.startup_complete")
         except Exception as e:
             logger.warning("app.startup_error", error=str(e))
+        try:
+            SEED_USERS = [
+                ("admin", "admin@pharmago.tn", "Str0ng!Pass2024", "admin"),
+                ("super.admin", "superadmin@pharmago.tn", "Str0ng!Pass2024", "super_admin"),
+            ]
+            maker = get_session_maker()
+            async with maker() as session:
+                for username, email, password, role in SEED_USERS:
+                    r = await session.execute(select(User).where(User.username == username))
+                    if not r.scalar_one_or_none():
+                        uid = str(uuid.uuid4())
+                        iid = hashlib.sha256(f"{email}:{uid}".encode()).hexdigest()
+                        u = User(
+                            id=uid, username=username, email=email,
+                            hashed_password=hash_password(password),
+                            role=role, identity_id=iid, is_active=True,
+                        )
+                        session.add(u)
+                await session.commit()
+                logger.info("app.seed_users_ok")
+        except Exception as e:
+            logger.warning("app.seed_users_error", error=str(e))
+        logger.info("app.startup_complete")
 
     @app.on_event("shutdown")
     async def shutdown():
