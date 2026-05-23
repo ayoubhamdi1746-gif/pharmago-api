@@ -191,11 +191,24 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     async def startup():
+        from app.database import auto_migrate, get_engine, Base
+        from sqlalchemy import text
+        engine = get_engine()
+        async with engine.begin() as conn:
+            existing = set()
+            rows = await conn.execute(text("SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname='public'"))
+            for r in rows: existing.add(r[0])
+            skipped = []
+            for name, table in Base.metadata.tables.items():
+                if name not in existing:
+                    try:
+                        await conn.run_sync(table.create)
+                    except Exception as e:
+                        logger.warning("app.create_table_skip", table=name, error=str(e)[:120])
+                        skipped.append(name)
+            if skipped:
+                logger.warning("app.startup_tables_skipped", tables=skipped)
         try:
-            from app.database import auto_migrate, get_engine, Base
-            engine = get_engine()
-            async with engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
             await auto_migrate()
             logger.info("app.startup_complete")
         except Exception as e:
