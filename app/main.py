@@ -146,10 +146,9 @@ def create_app() -> FastAPI:
             result.append({"fixed_columns_error": str(e)})
         try:
             async with get_engine().connect() as conn:
+                rows = await conn.execute(text("SELECT table_name, column_name, udt_name FROM information_schema.columns WHERE column_name='id' AND table_schema='public'"))
                 col_info = {}
-                for tbl in ["users", "prescriptions", "delivery_tickets", "vetted_drivers", "patient_identities", "licensed_pharmacists", "pharmacy_subscriptions"]:
-                    rows = await conn.execute(text("SELECT column_name, udt_name FROM information_schema.columns WHERE table_name=:t AND column_name='id'"), {"t": tbl})
-                    for r in rows: col_info[tbl] = r[1]
+                for r in rows: col_info[r[0]] = r[2]
                 result.append({"col_types": col_info})
         except Exception as e:
             result.append({"col_types_error": str(e)})
