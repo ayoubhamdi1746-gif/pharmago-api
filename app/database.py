@@ -1,8 +1,33 @@
+import uuid
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy import text
+from sqlalchemy import text, TypeDecorator, String
 from sqlalchemy.orm import DeclarativeBase
 import structlog
 from app.config import settings
+
+
+class StrUUID(TypeDecorator):
+    """UUID column that accepts Python str values and stores as native PG UUID"""
+    impl = String(36)
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+            return dialect.type_descriptor(PG_UUID())
+        return dialect.type_descriptor(String(36))
+
+    def process_bind_param(self, value, dialect):
+        if value is not None and dialect.name == "postgresql":
+            if isinstance(value, str):
+                return uuid.UUID(value)
+            return value
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None and dialect.name == "postgresql":
+            return str(value)
+        return value
 
 logger = structlog.get_logger()
 

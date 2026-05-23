@@ -113,9 +113,7 @@ def create_app() -> FastAPI:
         from sqlalchemy import text, select
         from app.config import settings
         from app.models.user import User
-        from app.services.password_policy import validate_password
         import traceback as tb_mod
-        import uuid, hashlib
         result = []
         try:
             async with get_engine().connect() as conn:
@@ -152,11 +150,6 @@ def create_app() -> FastAPI:
                 result.append({"col_types": col_info})
         except Exception as e:
             result.append({"col_types_error": str(e)})
-        try:
-            validate_password("Str0ng!Pass2024")
-            result.append({"pw_validation": "ok"})
-        except Exception as e:
-            result.append({"pw_validation": str(e)})
         try:
             maker = get_session_maker()
             async with maker() as session:

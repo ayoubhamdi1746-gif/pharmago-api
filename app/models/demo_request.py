@@ -1,13 +1,12 @@
 import uuid
 from datetime import datetime
 from sqlalchemy import Column, String, Text, DateTime, Boolean
-from app.database import Base
-
+from app.database import Base, StrUUID
 
 class DemoRequest(Base):
     __tablename__ = "demo_requests"
 
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = Column(StrUUID, primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String(255), nullable=False)
     pharmacy = Column(String(255), nullable=False)
     city = Column(String(100), nullable=True)

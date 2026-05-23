@@ -1,13 +1,12 @@
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import String, Text, DateTime, JSON, Column
-from app.database import Base
-
+from app.database import Base, StrUUID
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id = Column(StrUUID, primary_key=True, default=lambda: str(uuid.uuid4()))
     actor_id = Column(String(36), nullable=True, index=True)
     actor_role = Column(String(20), nullable=True)
     action = Column(String(100), nullable=False, index=True)
