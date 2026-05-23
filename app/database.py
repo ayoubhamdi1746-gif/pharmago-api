@@ -99,23 +99,20 @@ async def auto_migrate():
         ("vetted_drivers", "user_id", "VARCHAR(36)"),
     ]
     
-    try:
-        async with get_engine().begin() as conn:
-            for table, column, col_type in COLUMNS_TO_ADD:
-                if table not in VALID_TABLES or column not in VALID_COLUMNS:
-                    logger.warning("db.column_skipped_invalid", table=table, column=column)
-                    continue
-                try:
-                    result = await conn.execute(
-                        text("SELECT 1 FROM information_schema.columns WHERE table_name = :t AND column_name = :c"),
-                        {"t": table, "c": column},
-                    )
-                    if not result.scalar():
-                        await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
-                        logger.info("db.column_added", table=table, column=column)
-                except Exception as e:
-                    logger.debug("db.column_check_error", table=table, column=column, error=str(e))
-        
-        logger.info("db.auto_migration_complete")
-    except Exception as e:
-        logger.warning("db.auto_migration_failed", error=str(e))
+    for table, column, col_type in COLUMNS_TO_ADD:
+        if table not in VALID_TABLES or column not in VALID_COLUMNS:
+            logger.warning("db.column_skipped_invalid", table=table, column=column)
+            continue
+        try:
+            async with get_engine().begin() as conn:
+                result = await conn.execute(
+                    text("SELECT 1 FROM information_schema.columns WHERE table_name = :t AND column_name = :c"),
+                    {"t": table, "c": column},
+                )
+                if not result.scalar():
+                    await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
+                    logger.info("db.column_added", table=table, column=column)
+        except Exception as e:
+            logger.debug("db.column_check_error", table=table, column=column, error=str(e))
+    
+    logger.info("db.auto_migration_complete")

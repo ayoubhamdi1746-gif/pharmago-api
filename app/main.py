@@ -131,16 +131,19 @@ def create_app() -> FastAPI:
         except Exception as e:
             result.append({"auth_error": str(e), "tb": tb_mod.format_exc()})
         try:
-            # Fix missing pharmacst_license_hash column
-            async with get_engine().connect() as conn:
-                r = await conn.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name='users' AND column_name='pharmacist_license_hash'"))
-                if not r.scalar():
-                    await conn.execute(text("ALTER TABLE users ADD COLUMN pharmacist_license_hash VARCHAR(64)"))
-                    result.append({"fixed_column": "pharmacist_license_hash added"})
+            async with get_engine().begin() as conn:
+                existing = set()
+                rows = await conn.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name='users'"))
+                for r in rows: existing.add(r[0])
+                missing = [c for c in ["pharmacist_license_hash"] if c not in existing]
+                for col in missing:
+                    await conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} VARCHAR(255)"))
+                if missing:
+                    result.append({"fixed_columns": f"added {missing}"})
                 else:
-                    result.append({"fixed_column": "already exists"})
+                    result.append({"fixed_columns": "none needed"})
         except Exception as e:
-            result.append({"fixed_column_error": str(e)})
+            result.append({"fixed_columns_error": str(e)})
         try:
             maker = get_session_maker()
             async with maker() as session:
