@@ -7,7 +7,7 @@ class DriverLocation(Base):
     __tablename__ = "driver_locations"
 
     id = Column(StrUUID, primary_key=True, default=lambda: str(uuid.uuid4()))
-    driver_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    driver_id = Column(StrUUID, ForeignKey("users.id"), nullable=False, index=True)
     delivery_id = Column(String(36), nullable=True, index=True)
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)

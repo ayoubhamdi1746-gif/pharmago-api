@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import String, DateTime, Text, ForeignKey, Integer, func, LargeBinary, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import Uuid
-from app.database import Base
+from app.database import Base, StrUUID
 
 
 class Delivery(Base):
@@ -11,9 +11,9 @@ class Delivery(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     prescription_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("prescriptions.id", ondelete="CASCADE"), nullable=False, index=True, unique=True)
-    driver_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
-    pharmacy_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
-    patient_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    driver_id: Mapped[str] = mapped_column(StrUUID, ForeignKey("users.id"), nullable=False, index=True)
+    pharmacy_id: Mapped[str] = mapped_column(StrUUID, ForeignKey("users.id"), nullable=False, index=True)
+    patient_id: Mapped[str] = mapped_column(StrUUID, ForeignKey("users.id"), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(20), default="assigned", index=True)
     otp_code: Mapped[str | None] = mapped_column(String(6), nullable=True)
     otp_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

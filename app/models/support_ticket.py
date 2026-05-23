@@ -7,7 +7,7 @@ class SupportTicket(Base):
     __tablename__ = "support_tickets"
 
     id = Column(StrUUID, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    user_id = Column(StrUUID, ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)
     subject = Column(String(200), nullable=False)
     message = Column(Text, nullable=False)
     category = Column(String(50), default="general")
@@ -24,7 +24,7 @@ class TicketMessage(Base):
 
     id = Column(StrUUID, primary_key=True, default=lambda: str(uuid.uuid4()))
     ticket_id = Column(String(36), ForeignKey("support_tickets.id", ondelete="CASCADE"), nullable=False, index=True)
-    author_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    author_id = Column(StrUUID, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     message = Column(Text, nullable=False)
     is_internal = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

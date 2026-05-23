@@ -7,7 +7,7 @@ class Review(Base):
     __tablename__ = "reviews"
 
     id = Column(StrUUID, primary_key=True, default=lambda: str(uuid.uuid4()))
-    author_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    author_id = Column(StrUUID, ForeignKey('users.id'), nullable=False, index=True)
     target_type = Column(String(20), nullable=False)
     target_id = Column(String(36), nullable=False, index=True)
     rating = Column(Integer, nullable=False)

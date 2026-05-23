@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import String, DateTime, Text, ForeignKey, JSON, Enum, func
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import Uuid
-from app.database import Base
+from app.database import Base, StrUUID
 
 
 class Prescription(Base):
@@ -44,7 +44,7 @@ class PrescriptionEvent(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     prescription_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("prescriptions.id", ondelete="CASCADE"), nullable=False, index=True)
     event_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    actor_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
+    actor_id: Mapped[str | None] = mapped_column(StrUUID, ForeignKey("users.id"), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
