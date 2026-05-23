@@ -145,6 +145,20 @@ def create_app() -> FastAPI:
         except Exception as e:
             result.append({"fixed_columns_error": str(e)})
         try:
+            async with get_engine().connect() as conn:
+                col_info = {}
+                for tbl in ["users", "prescriptions", "delivery_tickets", "vetted_drivers", "patient_identities", "licensed_pharmacists", "pharmacy_subscriptions"]:
+                    rows = await conn.execute(text("SELECT column_name, udt_name FROM information_schema.columns WHERE table_name=:t AND column_name='id'"), {"t": tbl})
+                    for r in rows: col_info[tbl] = r[1]
+                result.append({"col_types": col_info})
+        except Exception as e:
+            result.append({"col_types_error": str(e)})
+        try:
+            validate_password("Str0ng!Pass2024")
+            result.append({"pw_validation": "ok"})
+        except Exception as e:
+            result.append({"pw_validation": str(e)})
+        try:
             maker = get_session_maker()
             async with maker() as session:
                 r = await session.execute(select(User).where(User.username == "__debug_test__"))
@@ -152,30 +166,6 @@ def create_app() -> FastAPI:
                 result.append({"session_ok": True, "user_found": user is not None})
         except Exception as e:
             result.append({"session_error": str(e), "tb": tb_mod.format_exc()[:200]})
-        try:
-            validate_password("Str0ng!Pass2024")
-            result.append({"pw_validation": "ok"})
-        except Exception as e:
-            result.append({"pw_validation": str(e)})
-        try:
-            from app.services.auth_service import hash_password as hp
-            maker = get_session_maker()
-            async with maker() as session:
-                uid = str(uuid.uuid4())
-                iid = hashlib.sha256(f"test@test.com:{uid}".encode()).hexdigest()
-                user = User(
-                    id=uid, username="test_debug_user",
-                    email="test@test.com", hashed_password=hp("Str0ng!Pass2024"),
-                    role="patient", identity_id=iid, is_active=True,
-                )
-                session.add(user)
-                await session.commit()
-                result.append({"user_created": uid})
-                # clean up
-                await session.delete(user)
-                await session.commit()
-        except Exception as e:
-            result.append({"user_create_error": str(e), "tb": tb_mod.format_exc()[:200]})
         result.append({"db_url_prefix": settings.DATABASE_URL[:30] + "..." if settings.DATABASE_URL else "NOT SET"})
         result.append({"jwt_secret_set": bool(settings.JWT_SECRET), "jwt_secret_len": len(settings.JWT_SECRET)})
         return result
