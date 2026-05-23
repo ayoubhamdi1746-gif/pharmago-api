@@ -23,7 +23,7 @@ class TicketMessage(Base):
     __tablename__ = "ticket_messages"
 
     id = Column(StrUUID, primary_key=True, default=lambda: str(uuid.uuid4()))
-    ticket_id = Column(String(36), ForeignKey("support_tickets.id", ondelete="CASCADE"), nullable=False, index=True)
+    ticket_id = Column(StrUUID, ForeignKey("support_tickets.id", ondelete="CASCADE"), nullable=False, index=True)
     author_id = Column(StrUUID, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     message = Column(Text, nullable=False)
     is_internal = Column(Boolean, default=False)
