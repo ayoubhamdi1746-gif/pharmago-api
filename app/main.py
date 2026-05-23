@@ -151,6 +151,16 @@ def create_app() -> FastAPI:
         except Exception as e:
             result.append({"col_types_error": str(e)})
         try:
+            async with get_engine().connect() as conn:
+                rows = await conn.execute(text("SELECT table_name, column_name, udt_name FROM information_schema.columns WHERE column_name IN ('user_id','driver_id','pharmacy_id','patient_id','actor_id','author_id') AND table_schema='public'"))
+                fk_info = {}
+                for r in rows:
+                    key = f"{r[0]}.{r[1]}"
+                    fk_info[key] = r[2]
+                result.append({"fk_col_types": fk_info})
+        except Exception as e:
+            result.append({"fk_col_types_error": str(e)})
+        try:
             maker = get_session_maker()
             async with maker() as session:
                 r = await session.execute(select(User).where(User.username == "__debug_test__"))
