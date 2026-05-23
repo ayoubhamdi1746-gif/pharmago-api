@@ -113,7 +113,9 @@ def create_app() -> FastAPI:
         from sqlalchemy import text, select
         from app.config import settings
         from app.models.user import User
+        from app.services.password_policy import validate_password
         import traceback as tb_mod
+        import uuid, hashlib
         result = []
         try:
             async with get_engine().connect() as conn:
@@ -135,13 +137,11 @@ def create_app() -> FastAPI:
                 existing = set()
                 rows = await conn.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name='users'"))
                 for r in rows: existing.add(r[0])
-                missing = [c for c in ["pharmacist_license_hash"] if c not in existing]
+                all_cols = ["pharmacist_license_hash", "email", "hashed_password", "role", "identity_id", "is_active"]
+                missing = [c for c in all_cols if c not in existing]
                 for col in missing:
                     await conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} VARCHAR(255)"))
-                if missing:
-                    result.append({"fixed_columns": f"added {missing}"})
-                else:
-                    result.append({"fixed_columns": "none needed"})
+                result.append({"fixed_columns": f"added {missing}" if missing else "none needed"})
         except Exception as e:
             result.append({"fixed_columns_error": str(e)})
         try:
@@ -152,6 +152,30 @@ def create_app() -> FastAPI:
                 result.append({"session_ok": True, "user_found": user is not None})
         except Exception as e:
             result.append({"session_error": str(e), "tb": tb_mod.format_exc()[:200]})
+        try:
+            validate_password("Str0ng!Pass2024")
+            result.append({"pw_validation": "ok"})
+        except Exception as e:
+            result.append({"pw_validation": str(e)})
+        try:
+            from app.services.auth_service import hash_password as hp
+            maker = get_session_maker()
+            async with maker() as session:
+                uid = str(uuid.uuid4())
+                iid = hashlib.sha256(f"test@test.com:{uid}".encode()).hexdigest()
+                user = User(
+                    id=uid, username="test_debug_user",
+                    email="test@test.com", hashed_password=hp("Str0ng!Pass2024"),
+                    role="patient", identity_id=iid, is_active=True,
+                )
+                session.add(user)
+                await session.commit()
+                result.append({"user_created": uid})
+                # clean up
+                await session.delete(user)
+                await session.commit()
+        except Exception as e:
+            result.append({"user_create_error": str(e), "tb": tb_mod.format_exc()[:200]})
         result.append({"db_url_prefix": settings.DATABASE_URL[:30] + "..." if settings.DATABASE_URL else "NOT SET"})
         result.append({"jwt_secret_set": bool(settings.JWT_SECRET), "jwt_secret_len": len(settings.JWT_SECRET)})
         return result
